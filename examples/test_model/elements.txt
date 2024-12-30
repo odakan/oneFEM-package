@@ -1,0 +1,2 @@
+#element bernoulliBeam -eleID -node1 -node2 -E -A -Izz -p -q
+element bernoulliBeam 1 1 2 30000000 0.09 0.000675 0 0
