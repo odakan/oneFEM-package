@@ -9,6 +9,12 @@ from .multipoint.equalDOF import EqualDOF
 from .singlepoint.fix import Fix
 
 
+# delete modules imported from .py directories
+del main
+del singlepoint
+del multipoint
+
+
 __all__ = [
     "Constraint",
     "EqualDOF",

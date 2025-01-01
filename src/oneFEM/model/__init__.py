@@ -8,6 +8,9 @@ from . import node
 from . import pattern
 from . import tseries
 
+# delete modules imported from .py directories
+del main
+
 __all__ = [
     "Domain",
     "constraint",

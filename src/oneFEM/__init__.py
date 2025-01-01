@@ -64,7 +64,7 @@ from . import input         # Import input module
 
 # Import top-level objects
 from ._systools.simulation_manager import SimulationManager # Simulation Manager tool
-from ._systools import source                               # The source command
+from ._systools.source import source                        # The source command
 from ._systools import data                                 # The data module
 
 # Optional: Define a version number or metadata for your package

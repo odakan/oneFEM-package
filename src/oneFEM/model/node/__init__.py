@@ -8,6 +8,16 @@ from .node3_u import Node3U
 from .node3_up import Node3UP
 from .node3_ur import Node3UR
 
+# delete modules imported from .py directories
+del main
+del node2_u
+del node2_up
+del node2_ur
+del node3_u
+del node3_up
+del node3_ur
+
+
 __all__ = [
     "Node",
     "Node2U",

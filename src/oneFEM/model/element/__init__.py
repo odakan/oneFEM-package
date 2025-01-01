@@ -2,30 +2,19 @@
 
 from .main import Element
 from . import section
+from . import beam
+from . import shell
+from . import solid
+from . import zerolength
 
-# Beam-Column elements
-from .beam.bernoulliBeam import BernoulliBeam
-from .beam.dispBeamColumn import DispBeamColumn
-
-# Shell elements
-from .shell.shellQ4 import ShellQ4
-
-# Solid elements
-from .solid.triangular import Tri3
-from .solid.quadrilateral import Quad4
-
-# Zero-length elements
-from .zerolength.zerolength import ZeroLength
-from .zerolength.zerolength_contact import ZLContact
+# delete modules imported from .py directories
+del main
 
 __all__ = [
     "section",
     "Element",
-    "BernoulliBeam",
-    "DispBeamColumn",
-    "ShellQ4",
-    "Tri3",
-    "Quad4",
-    "ZeroLength",
-    "ZLContact"
+    "beam",
+    "shell",
+    "solid",
+    "zerolength"
 ]
