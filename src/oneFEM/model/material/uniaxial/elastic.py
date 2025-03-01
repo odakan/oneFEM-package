@@ -1,5 +1,5 @@
 from ..main import Material
 
-class Elastic1D(Material):
+class Elastic(Material):
     def __init__(self):
         pass
