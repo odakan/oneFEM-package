@@ -1,29 +1,31 @@
 # oneFEM/model/node/__init__.py
 
 from .main import Node
-from .node2_u import Node2U
-from .node2_up import Node2UP
-from .node2_ur import Node2UR
-from .node3_u import Node3U
-from .node3_up import Node3UP
-from .node3_ur import Node3UR
+from .node_2_2 import Node22
+from .node_2_3 import Node23
+from .node_2_4 import Node24
+from .node_3_3 import Node33
+from .node_3_4 import Node34
+from .node_3_6 import Node36
+from .node_3_7 import Node37
 
 # delete modules imported from .py directories
 del main
-del node2_u
-del node2_up
-del node2_ur
-del node3_u
-del node3_up
-del node3_ur
-
+del node_2_2
+del node_2_3
+del node_2_4
+del node_3_3
+del node_3_4
+del node_3_6
+del node_3_7
 
 __all__ = [
     "Node",
-    "Node2U",
-    "Node2UP",
-    "Node2UR",
-    "Node3U",
-    "Node3UP",
-    "Node3UR"
+    "Node22",
+    "Node23",
+    "Node24",
+    "Node33",
+    "Node34",
+    "Node36",
+    "Node37"
 ]

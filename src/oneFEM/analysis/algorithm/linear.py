@@ -17,10 +17,9 @@ from .main import Algorithm
 class Linear(Algorithm):
     def __init__(self, ID=-1, nSteps=0, dt=0.0):
         # Call the parent class constructor
-        super().__init__(ID, None, None, nSteps, dt)
-        self.ID = ID
-        self.nSteps = nSteps
-        self.dt = dt
+        super().__init__(ID)
+        self._nSteps = nSteps
+        self._dt = dt
 
     @staticmethod
     def add_analysis(data):

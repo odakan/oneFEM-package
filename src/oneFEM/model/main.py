@@ -17,6 +17,7 @@ from .pattern.main import Pattern
 from .element.main import Element
 from .material.main import Material
 from .constraint.main import Constraint
+from ..output.recorder.main import Recorder
 
 class Domain(object):
     def __init__(self, nD=0):
@@ -25,9 +26,10 @@ class Domain(object):
         self.__nodes = []       # Nodes (list)
         self.__patterns = []    # Load Pattern (list)
         self.__elements = []    # Elements (list)
-        self.__materials = []   # Materials (list)
-        self.__time_series = [] # Load time series (list)
+        #self.__materials = []   # Materials (list)
+        #self.__time_series = [] # Load time series (list)
         self.__constraints = [] # Constraints (list)
+        self.__recorders = []   # Recorders (list)
 
         # Model variables
         self.__nDim = int(0)  # model dimension 2D or 3D
@@ -40,7 +42,8 @@ class Domain(object):
         self.__nCons = 0    # total number of constraints
         self.__nTS = 0      # total number of time serires
         self.__nPtrns = 0   # total number of loading patterns
-        self.__nMats = 0    # totam number of root (user) materials
+        self.__nMats = 0    # total number of root (user) materials
+        self.__nRecs = 0    # total number of recorders
 
         # Initialize global matrices and vectors
         self._K = 0  # Global tangent stiffness matrix
@@ -51,19 +54,19 @@ class Domain(object):
         self._a = 0  # Acceleration increment vector
         self._F = 0  # Force increment vector
 
-        # Initialize the DOF counter
-        self._dof_counter(0)
+        ## Initialize the DOF counter
+        #self._dof_counter(0)
 
 
     def _domain(self):
         # Compute the initial state of the domain
-        self.nNds = len(self.nodes)
+        self.nNds = len(self.__nodes)
         if self.nNds < 1:
-            raise ValueError("MAIN: No nodes in the domain!")
+            raise ValueError("Domain: No nodes in the domain!")
 
-        self.nElems = len(self.elements)
+        self.nElems = len(self.__elements)
         if self.nElems < 1:
-            raise ValueError("MAIN: No elements in the domain!")
+            raise ValueError("Domain: No elements in the domain!")
 
         # Count nDOFs
         self.nDOF = self.nodes.dof_numberer()
@@ -89,9 +92,9 @@ class Domain(object):
                 gd.extend(node.dofs)
             for i in gd:
                 for j in gd:
-                    self.K[i][j] += element.k
+                    self.K[i][j] += element.__k
             for i in gd:
-                self.F[i] += element.f
+                self.F[i] += element.__f
 
         # Assemble F and u for each node
         for node in self.nodes:
@@ -126,41 +129,100 @@ class Domain(object):
         pass
 
 
-    def _add(self, command):
-        # Add an object to the domain based on the command
-        if command[0] == "element":
-            ele = Element()
-            if self.elements[-1].ID == -1:
-                self.elements[-1] = ele.add_element(command, self.nodes)
+    # Domain API methods
+    def add(self, *objs):
+        # Iterate over all passed objects
+        for obj in objs:
+            if isinstance(obj, Element):
+                self.__elements.append(obj)
+
+            #elif isinstance(obj, Material):
+            #    self.__materials.append(obj)
+
+            elif isinstance(obj, Node):
+                self.__nodes.append(obj)
+
+            elif isinstance(obj, Pattern):
+                self.__patterns.append(obj)
+
+            #elif isinstance(obj, TSeries):
+            #    self.__time_series.append(obj)
+
+            elif isinstance(obj, Constraint):
+                self.__constraints.append(obj)
+
+            elif isinstance(obj, Recorder):
+                self.__recorders.append(obj)
+
             else:
-                self.elements.append(ele.add_element(command, self.nodes))
-        elif command[0] == "material":
-            mat = Material()
-            if self.materials[-1].ID == -1:
-                self.materials[-1] = mat.add_material(command)
-            else:
-                self.materials.append(mat.add_material(command))
-        elif command[0] == "node":
-            nd = Node()
-            if self.nodes.ID == -1:
-                self.nodes = nd.add_node(command)
-            else:
-                self.nodes.append(nd.add_node(command))
-        elif command[0] == "pattern":
-            rec = Pattern()
-            if self.patterns[-1].ID == -1:
-                self.patterns[-1] = rec.add_pattern(command)
-            else:
-                self.recorders.append(rec.add_pattern(command))
-        elif command[0] == "timeseries":
-            ts = TSeries()
-            if self.time_series[-1].ID == -1:
-                self.time_series[-1] = ts.add_tseries(command)
-            else:
-                self.time_series.append(ts.add_tseries(command))
+                print(f"Domain: Unknown object! {obj}")
+
+
+    def remove(self, obj):
+        # Remove an object from the domain based on the command
+        if isinstance(obj, Element):
+            for element in self.__elements:
+                if element == obj:
+
+                    # check if recorder is connected to element
+
+
+                    self.__elements.remove(element)
+                else:
+                    print("Domain: Element not found!")
+
+        #elif isinstance(obj, Material):
+        #    for material in self.__materials:
+        #        if material == obj:
+        #            self.__materials.remove(material)
+        #        else:
+        #            print("Domain: Material not found!")
+
+        elif isinstance(obj, Node):
+            for node in self.__nodes:
+                if node == obj:
+
+                    # check if element is connected to the node
+
+                    # check if constraint is connected to the node
+
+                    # check if pattern is connected to the node
+
+                    # check if recorder is connected to the node
+
+                    self.__nodes.remove(node)
+                else:
+                    print("Domain: Node not found!")
+
+        elif isinstance(obj, Pattern):
+            for pattern in self.__patterns:
+                if pattern == obj:
+                    self.__patterns.remove(pattern)
+                else:
+                    print("Domain: Pattern not found!")
+
+        #elif isinstance(obj, TSeries):
+        #    for tseries in self.__time_series:
+        #        if tseries == obj:
+        #            # check if pattern is connected to the time series
+        #
+        #            self.__time_series.remove(tseries)
+        #        else:
+        #            print("Domain: Time Series not found!")
+
+        elif isinstance(obj, Constraint):
+            for constraint in self.__constraints:
+                if constraint == obj:
+                    self.__constraints.remove(constraint)
+                else:
+                    print("Domain: Constraint not found!")
+
+        elif isinstance(obj, Recorder):
+            for recorder in self.__recorders:
+                if recorder == obj:
+                    self.__recorders.remove(recorder)
+                else:
+                    print("Domain: Recorder not found!")
+
         else:
-            print("Domain: Unknown command!")
-
-
-    def _remove(self):
-        pass
+            print("Domain: Unknown object!")

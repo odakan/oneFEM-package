@@ -1,3 +1,4 @@
 class ConstraintHandler(object):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, ID=-1):
+        self.ID=ID
+        pass
