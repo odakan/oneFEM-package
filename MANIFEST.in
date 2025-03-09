@@ -1,0 +1,27 @@
+# Include README.md, LICENSE, and requirements.txt
+include README.md
+include LICENSE
+include MANIFEST.in
+include requirements.txt
+include docs/*.rst
+
+# include top-level Python source files
+include src/oneFEM/__init__.py
+include src/oneFEM/__main__.py
+include setup.py
+
+# Include Python source files
+#recursive-include **/*.py
+recursive-include src/oneFEM *.py
+recursive-include src/oneFEM/model *.py
+recursive-include src/oneFEM/input *.py
+recursive-include src/oneFEM/output *.py
+recursive-include src/oneFEM/analysis *.py
+recursive-include src/oneFEM/_systools *.py
+
+# Exclude some directories
+prune examples
+prune dist
+prune build
+prune oneFEM.egg-info
+prune .gitignore

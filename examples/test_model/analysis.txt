@@ -1,0 +1,8 @@
+#analysis -type -integrator -convergence_test -tolerance -nSteps -dt
+# type: 			static
+#					transient
+# integrator: 		newton-raphson
+#			  		newmark
+# convergence_test: unbalancedforce
+#					displacement
+analysis 1 static newton-raphson unbalancedforce 10e-5 1 1

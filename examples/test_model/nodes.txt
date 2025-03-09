@@ -1,0 +1,6 @@
+#node -nodeID -nDOF -Xcrd -Ycrd -fix1 -fix2 -fix3 -l1 -l2 -l3
+#if nDOF is 2 fix3 and l3 must be omitted
+#if a dof is free the corresponding b.c. is a nodal load
+#if a dof is fixed the corresponding b.c. is an imposed displacement
+node 1 3 0 0 1 1 1 0 0 0
+node 2 3 0 3 0 0 0 1 0 0

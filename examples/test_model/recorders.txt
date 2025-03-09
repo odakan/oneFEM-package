@@ -1,0 +1,12 @@
+#recorder node -nodeID -filename -results -dof1 -dof2 -dof3
+#recorder element -eleID -filename -results
+#dof3 will be ignored if the node nDOF is 2
+#dof --> 1: record 	0: skip
+#permitted results: displacement, force
+#velocity, acceleration
+recorder 1 1 1 1 disp force
+recorder 2 1 1 1 disp force
+recorder 3 1 1 1 disp force
+recorder 4 1 1 1 disp force
+recorder 5 1 1 1 disp force
+recorder 6 1 1 1 disp force
