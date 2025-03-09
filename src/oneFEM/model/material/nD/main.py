@@ -1,18 +1,24 @@
 ##-----------------------------------------------------------------------##
 #                                                                         #
-#      #--oneFEM--#: One 2D FEM software in a galaxy far far away         #
+#        #--oneFEM--#: One FEM software in a galaxy far far away          #
 #                                                                         #
 #                   Computational Mechanics 2022                          #
 #                       University of Pavia                               #
 #               Written by: Onur Deniz AKAN, IUSS Pavia                   #
-#                         24 January 2022                                 #
+#                         15 January 2022                                 #
 #                                                                         #
 ##-----------------------------------------------------------------------##
-#ALGORITHM main object definition
-#   keeps universal vars, functions and list of analyses
-#   if static solve u = K\F
-#   if transient solve Ma + Cv + Ku = F
+# 
+# Author: Onur Deniz Akan
+# Date: 01/03/2025
+# Version: 0.1
+#
+#NDMATERIAL main object definition
+#   definition of a FE NDMATERIAL object and functions operating 
+#   in a section object.
 
-class Algorithm(object):
-    def __init__(self, ID=-1):
-        self._ID = ID
+from ..main import Material
+
+class nDMaterial(Material):
+    def __init__(self, mat_id=-1):
+        self.__ID = mat_id

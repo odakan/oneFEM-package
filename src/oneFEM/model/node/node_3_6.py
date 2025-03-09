@@ -14,33 +14,57 @@
 # Version: 0.1
 #
 #NODE main object definition
-#   definition of a FE node object and functions operating over a node
-#   object. The node object is defined with the following attributes:
-#   mass, fixity, and coordinate information
+#   definition of a FE node object and functions operating on a node
+#   3D 6-dof mechanical structure node
 
-from ..._systools.data.vector import Vector
+from .main import Node
+from ..._systools.data import Vector
 
-class Node(object):
-    def __init__(self, nodeID=-1):
+class Node36(Node):
+    def __init__(self, node_id, coord=[], mass=[], fix=[]):
         """
         Node Constructor
-        :param nodeID: Node ID (integer)
+        :param node_id: Node ID (integer)
+        :param coords:  3D coordinates as a list [X, Y, Z]
+        :param mass:    Masses as a list [mass1, mass2, mass3, mass4, mass5, mass6]
+        :param fix:     Fixity constraints as a list [fix1, fix2, fix3, fix4, fix5, fix6]
         """
-        self._ID = nodeID
-        self._nD = 0
-        self._nDOF = 0
-        self._dofs = Vector(dtype=int)
-        self._coord = Vector()
-        self._mass = Vector()
-        self._fix = Vector(dtype=bool)
+        super().__init__(node_id)
+        self._nD = 3
+        self._nDOF = 6
+
+        # private
+        self._dofs = Vector([0, 0, 0, 0, 0, 0], dtype=int)
+        self._coord = Vector([0.0, 0.0, 0.0], dtype=float)
+        self._mass = Vector([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=float)
+        self._fix = Vector([False, False, False, False, False, False], dtype=bool)
               
         # Initialize solution-related variables
-        self._u_trial = Vector()
-        self._v_trial = Vector()
-        self._a_trial = Vector()
-        self._u_commit = Vector()
-        self._v_commit = Vector()
-        self._a_commit = Vector()
+        self._u_trial = Vector([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=float)
+        self._v_trial = Vector([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=float)
+        self._a_trial = Vector([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=float)
+        self._u_commit = Vector([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=float)
+        self._v_commit = Vector([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=float)
+        self._a_commit = Vector([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=float)
+
+        if len(coord) == self._nD:
+            self._coord = Vector(coord, dtype=float)
+        else:
+            raise ValueError("oneFEM.Node36() - Number of coordinate entries does not match node dimension!")
+
+        if len(mass) == self._nDOF:
+            self._mass = Vector(mass, dtype=float)
+        elif len(mass) == 0:
+            pass
+        else:
+            raise ValueError("oneFEM.Node36() - Number of mass entries does not match node number of d.o.f.s!")
+
+        if len(fix) == self._nDOF:
+            self._fix = Vector(fix, dtype=bool)
+        elif len(fix) == 0:
+            pass
+        else:
+            raise ValueError("oneFEM.Node36() - Number of fix entries does not match node number of d.o.f.s!")
 
     # Node API (for internal use)
     def _setDOF(self, dofs):
@@ -51,7 +75,7 @@ class Node(object):
         if len(dofs) == self._nDOF:
             self._dofs = Vector(dofs, dtype=int)
         else:
-            raise ValueError("oneFEM.Node._setDOF() - Number of DOF entries does not match node number of d.o.f.s!")
+            raise ValueError("oneFEM.Node36._setDOF() - Number of DOF entries does not match node number of d.o.f.s!")
 
     def _update(self, disp, vel=None, accel=None):
         """
@@ -71,9 +95,9 @@ class Node(object):
         :param velocities: (Optional) Velocities to commit
         :param accelerations: (Optional) Accelerations to commit
         """
-        self._u_commit = Vector(disp, dtype=float)
-        self._v_commit = Vector(vel, dtype=float)
-        self._a_commit = Vector(accel, dtype=float)
+        self._u_trial = Vector(disp, dtype=float)
+        self._v_trial = Vector(vel, dtype=float)
+        self._a_trial = Vector(accel, dtype=float)
 
     def _getTrialDisp(self):
         return self._u_trial
@@ -102,46 +126,33 @@ class Node(object):
         if len(fix) == self._nDOF:
             self._fix = Vector(fix, dtype=bool)
         else:
-            raise ValueError("oneFEM.Node.setFix() - Number of fix entries does not match node number of d.o.f.s!")
+            raise ValueError("oneFEM.Node36.setFix() - Number of fix entries does not match node number of d.o.f.s!")
 
     def setMass(self, mass):
         """
         Set d.o.f. masses
-        :param mass: Masses. list of floats e.g.: [1.0, 2.0, 3.0]
+        :param mass: Masses. list of floats e.g.: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
         """
         if len(mass) == self._nDOF:    
             self._mass = Vector(mass, dtype=float)
         else:
-            raise ValueError("oneFEM.Node.setMass() - Number of mass entries does not match node number of d.o.f.s!")
+            raise ValueError("oneFEM.Node36.setMass() - Number of mass entries does not match node number of d.o.f.s!")
     
     def getResult(self, query, dofs):
         """
         Retrieve results for specific DOFs
         :param query: String specifying the type of result ('disp', 'vel', or 'accel')
-        :param dofs: List of DOFs to query e.g. [1, 2, 3]
+        :param dofs: List of DOFs to query e.g. [1, 2, 3, 4, 5, 6]
         :return: List of results for the specified DOFs
         """
         if query in {"disp", "displacement", "d", "u"}:
-            return [self._u_commit[d-1] for d in dofs]
+            return Vector([self._u_commit[d-1] for d in dofs])
         elif query in {"vel", "velocity", "v"}:
-            return [self._v_commit[d-1] for d in dofs]
+            return Vector([self._v_commit[d-1] for d in dofs])
         elif query in {"accel", "acceleration", "a"}:
-            return [self._a_commit[d-1] for d in dofs]
+            return Vector([self._a_commit[d-1] for d in dofs])
         else:
             raise ValueError("oneFEM.Node.getResult() - Unknown query type!")
 
     def getCoordinates(self):
-        """Return a list of coordinates"""
-        return self._coord.data
-    
-    def getDOFs(self):
-        """Return a list of nodes"""
-        return self._dofs.data
-    
-    def getND(self):
-        """Return number of dimensions"""
-        return self._nD
-    
-    def getNDOF(self):
-        """Return number of dofs"""
-        return self._nDOF
+        return self._coord

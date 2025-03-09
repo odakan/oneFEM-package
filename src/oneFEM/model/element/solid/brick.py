@@ -1,18 +1,30 @@
 ##-----------------------------------------------------------------------##
 #                                                                         #
-#      #--oneFEM--#: One 2D FEM software in a galaxy far far away         #
+#        #--oneFEM--#: One FEM software in a galaxy far far away          #
 #                                                                         #
 #                   Computational Mechanics 2022                          #
 #                       University of Pavia                               #
 #               Written by: Onur Deniz AKAN, IUSS Pavia                   #
-#                         24 January 2022                                 #
+#                         15 January 2022                                 #
 #                                                                         #
 ##-----------------------------------------------------------------------##
-#ALGORITHM main object definition
-#   keeps universal vars, functions and list of analyses
-#   if static solve u = K\F
-#   if transient solve Ma + Cv + Ku = F
+# 
+# Author: Onur Deniz Akan
+# Date: 08/02/2025
+# Version: 0.1
+#
+#BRICK main object definition
+#   definition of a FE node object and functions operating over a node
+#   3D 3-dof mechanical solid node
 
-class Algorithm(object):
-    def __init__(self, ID=-1):
-        self._ID = ID
+from ..main import Element
+
+class Brick(Element):
+    def __init__(self, id=-1):
+        super().__init__(id)
+
+
+class Brick8(Brick):
+    def __init__(self, id=-1):
+        super().__init__(id)
+        self.nodes = [None]*8

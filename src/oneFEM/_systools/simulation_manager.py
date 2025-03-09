@@ -33,99 +33,36 @@ from ..analysis.main import Analysis
 
 # SimulationManager class definition
 class SimulationManager(object):
-    def __init__(self, ID, path=None):
+    def __init__(self, ID, domain=Domain(), analysis=Analysis(), dt=0.0):
         """
         Initialize the SimulationManager object.
         :param path: Directory of the folder with .txt files.
         """
         # Initialize properties
         self.ID = ID
+        self._dt = dt
         self.model_path = None
-        self.model = Domain()  # Initialize the domain
-        self.analysis = Analysis()  # Initialize the analysis
-
-        # Check if path exists
-        if Path(path).is_dir():
-            self.model_path = path
-        else:
-            raise FileNotFoundError("oneFEM:SimulationManager: Model directory does not exist!\nExit code: -1")
-
-        # Build the model
-        self._build()
+        self.model = domain  # Initialize the domain
+        self.analysis = analysis  # Initialize the analysis
 
         # Display message
         print("oneFEM:SimulationManager: Model built successfully.")
 
-    def _build(self):
 
-        # first wipe the model
-        self.wipe()
+    def analyze(self, nSteps, dt=-1):
 
-        """Read the model definition."""
-        self.__read("nodes.txt")
-        self.__read("materials.txt")
-        self.__read("elements.txt")
-        self.__read("time_series.txt")
-        self.__read("recorders.txt")
-        self.__read("analysis.txt")
+        # if a new dt is specified
+        if dt > 0.0:
+            self._dt=dt
 
-        # Compute the reference configuration
-        self.model._domain()
-
-    def run(self):
         """Run analysis and record results."""
-        for analysis in self.analysis:
-            self.model = analysis._analyze(self.model)
+
+
         print("oneFEM:SimulationManager: Analysis completed successfully.")
         self.terminate()
 
-    def __read(self, file):
-        """
-        Read a .txt file and process its contents.
 
-        :param file: Name of the .txt file to read.
-        """
-        # Change directory temporarily
-        original_dir = os.getcwd()
-        os.chdir(self.model_path)
-
-        try:
-            # Read the file line by line
-            with open(file, "r") as f:
-                for line in f:
-                    line = line.strip()
-                    # Skip empty lines and comments
-                    if not line or line.startswith("#"):
-                        continue
-
-                    # Split the line into tokens
-                    tokens = line.split()
-                    self._add(tokens)
-        except FileNotFoundError:
-            print(f"oneFEM:SimulationManager: File {file} not found!")
-        finally:
-            # Return to the original directory
-            os.chdir(original_dir)
-
-    def _add(self, cmd):
-        """
-        Dispatch add object command to the domain or analysis.
-
-        :param cmd: List of tokens representing the command.
-        """
-        if cmd:
-            if cmd[0] == "analysis":
-                an = Analysis()
-                if self.analysis[-1].ID == -1:  # If the latest element is invalid
-                    self.analysis[-1] = an.add_analysis(cmd)
-                else:  # If the latest analysis is valid
-                    self.analysis.append(an.add_analysis(cmd))
-            else:  # Other commands work on the Domain
-                self.model = self.model.add(cmd)
-        else:
-            print("oneFEM:SimulationManager: Command string is empty!")
-
-    def _terminate(self, loud=True):
+    def terminate(self, loud=True):
         """
         Clean up and display termination message if required.
 
