@@ -1,141 +1,128 @@
-##-----------------------------------------------------------------------##
-#                                                                         #
-#        #--oneFEM--#: One FEM software in a galaxy far far away          #
-#                                                                         #
-#                   Computational Mechanics 2022                          #
-#                       University of Pavia                               #
-#               Written by: Onur Deniz AKAN, IUSS Pavia                   #
-#                         24 January 2022                                 #
-#                                                                         #
-##-----------------------------------------------------------------------##
-#ANALYSIS main object definition
-#   keeps universal vars, functions and list of analyses
-
 from .algorithm.main import Algorithm           # algorithm objects
+from .algorithm.linear import Linear            # linear algorithm
 from .constraints.main import ConstraintHandler # constraint handler objects
 from .eigen.main import Eigen                   # eigen value and vector solvers
 from .integrator.main import Integrator         # integrator (time-stepping) objects
+from .integrator.dynamic.newmark import Newmark # Newmark dynamic integrator
+from .integrator.dynamic.central_difference import CDiff  # Central Difference
 from .numberer.main import Numberer             # d.o.f. numberer objects
 from .system.main import System                 # system of equation (matrix) handlers
 from .test.main import Test                     # convergence test objects
 
 class Analysis(object):
-    def __init__(self, ID, dynamic=None, algorithm=None, constraints=None, integrator=None,
-                 numberer=None, system=None, test=None, tolerance=None):
-        # Initialize the properties
-        self.__ID = int(ID)                     # integer
-        self.__nSteps = int(0)                  # integer
-        self.__dt = float(0.0)                  # float
-        self.__solution_type = None             # boolean [False:static - True:dynamic]
-        self.__solution_algorithm = None        # Algorithm object
-        self.__convergence_test = None          # Test object
-        self.__convergence_tolerance = None     # float
-        self.__constraint_handler = None        # Constratints object
-        self.__solution_integrator = None       # Integrator object
-        self.__system_of_equations = None       # System object
-        self.__dof_numberer = None              # Numberer object
-        self.__is_ready_for_analysis = False    # boolean [True:analyze becomes available]
+    def __init__(self, ID=-1, algorithm=None, constraints=None,
+                 integrator=None, numberer=None, system=None, test=None):
+        self._ID = int(ID)
+        self._time = 0.0
+        self._solution_algorithm = None
+        self._convergence_test = None
+        self._constraint_handler = None
+        self._solution_integrator = None
+        self._system_of_equations = None
+        self._dof_numberer = None
 
-        # Initialize convergence-related properties
-        self.__norm = None
-        self.__nIter = None
-        self.__verbosity = 0
-        self.__is_converged = False
+        # Free and fixed DOF indices
+        self.uu = []
+        self.pp = []
 
-        # add analysis
-        self.__add_analysis(dynamic, algorithm, constraints, integrator,
-                 numberer, system, test, tolerance)
-
-        # Initialize vectors for free and fixed degrees of freedom
-        self.uu = []  # Free DOF vector
-        self.pp = []  # Fixed DOF vector
-
-
-    def __add_analysis(self, alg, const, int, numb, sys, test, tol):
-        pass
+        # Store analysis components (use defaults if None)
+        if algorithm is None:
+            algorithm = Algorithm()
+        if constraints is None:
+            constraints = ConstraintHandler()
+        if integrator is None:
+            integrator = Integrator()
+        if numberer is None:
+            numberer = Numberer()
+        if system is None:
+            system = System()
+        if test is None:
+            test = Test()
+        self.__add_analysis(algorithm, constraints, integrator,
+                            numberer, system, test)
 
 
-    def set(self, cmd):
-        # Parse the add analysis command
-        if len(cmd) < 7:
-            raise ValueError("DOMAIN: Improper analysis definition!")
+    def __add_analysis(self, alg=None, const=None, integ=None,
+                       numb=None, syst=None, test=None):
+        if alg is not None:
+            self._solution_algorithm = alg
+        if const is not None:
+            self._constraint_handler = const
+        if integ is not None:
+            self._solution_integrator = integ
+        if numb is not None:
+            self._dof_numberer = numb
+        if syst is not None:
+            self._system_of_equations = syst
+        if test is not None:
+            self._convergence_test = test
 
-        atype = cmd[2]  # Analysis type
-        ahandle = cmd[3]  # Analysis handle
-        data = cmd[1:]  # Analysis-specific data
 
-        # Process based on analysis type and handle
-        if "static" in ahandle:
-            if "linear" in ahandle:
-                # Linear solver
-                analysis = linstat().add_analysis(data)
-            elif "newton" in ahandle or "newton-raphson" in ahandle:
-                # Newton-Raphson algorithm
-                analysis = nr_solve().add_analysis(data)
-            elif "krylov" in ahandle or "krylov-newton" in ahandle:
-                # Newton-Raphson with line search
-                analysis = kn_solve().add_analysis(data)
-            else:
-                raise ValueError(f"ANALYSIS: {ahandle} static analysis does not exist!")
-        elif "transient" in atype or "dynamic" in atype:
-            if "linear" in ahandle:
-                # Newmark implicit solver
-                analysis = lindyn().add_analysis(data)
-            elif ahandle in {"newmark", "nmk"}:
-                # Newmark implicit solver
-                analysis = nmk_solve().add_analysis(data)
-            elif ahandle in {"central_difference", "cd"}:
-                # Central difference explicit solver
-                analysis = cdiff().add_analysis(data)
-            else:
-                raise ValueError(f"ANALYSIS: {ahandle} transient analysis does not exist!")
-        else:
-            raise ValueError(f"ANALYSIS: {atype} type analysis does not exist!")
-
-        # If all settings are read, set the analysis 
-        self._set_analysis(algorithm, constraints, integrator,
-                 numberer, system, test, tolerance)
-
-    def _analyze(self, model, nSteps=None, dt=None):
-        # Trigger a step of analysis
-        pass
-
-    def __organize(self, model):
-        # Identify and separate free and fixed DOFs
+    def _organize(self, model):
+        """Identify and separate free and fixed DOFs."""
         self.pp = []  # Fixed DOFs
         self.uu = []  # Free DOFs
         for node in model.nodes:
-            for j in range(node.nDOF):
-                if node.fix[j] == 1:  # Fixed node
-                    self.pp.append(node.dofs[j])
-                else:  # Free node
-                    self.uu.append(node.dofs[j])
+            nDOF = node.getNDOF()
+            node_dofs = node.getDOFs()
+            fix = node._fix
+            if hasattr(node_dofs, 'tolist'):
+                dof_list = node_dofs.tolist()
+            elif hasattr(node_dofs, 'data'):
+                dof_list = node_dofs.data.tolist()
+            else:
+                dof_list = list(node_dofs)
 
-    def convergence(self, verbose=-1):
-        # print convergence statistics
-        # verbose:  0 print now and nothing later
-        #           1 print now and keep printing after each converge
-        #           2 print now and keep printing after each test
-        __current_convergence_info = "{:8.6f}  {:d}".format(self.__norm, self.__nIter)
-        __step_convergence_info = "{:8.6f}  {:d}".format(self.__norm, self.__nIter)
-        if verbose == -1:
-            if self.__verbosity == 1 and self.__is_converged:
-                print(__step_convergence_info)
-
-            elif self.__verbosity == 2:
-                print(__current_convergence_info)
+            for j in range(nDOF):
+                if fix[j]:
+                    self.pp.append(dof_list[j])
+                else:
+                    self.uu.append(dof_list[j])
 
 
-    def __test(self):
-        # update the norm and increment the number of iterations
-        self.__is_converged = False
+    def _analyze(self, model, nSteps=1, dt=0.0):
+        """Run the analysis pipeline.
 
-        # compute the norm
-        self__norm = self.__convergence_test.norm()
+        The Integrator forms the tangent and residual.
+        The Algorithm manages the iteration loop (or single pass).
+        """
+        # 1. Number DOFs and initialize elements
+        model._domain()
 
-        # check for convergence
-        if self.__norm < self.__convergence_tolerance:
-            self.__is_converged = True
+        # 2. Separate free/fixed DOFs
+        self._organize(model)
 
-        # print some stats if requested
-        self.convergence()  
+        integrator = self._solution_integrator
+        algorithm = self._solution_algorithm
+        is_dynamic = isinstance(integrator, (Newmark, CDiff))
+
+        # For dynamic: initial assembly and compute a_0
+        if is_dynamic:
+            model._assemble(time=self._time)
+            integrator.initialize(model)
+
+        # 3. Time stepping loop
+        for step in range(nSteps):
+            # Assembly time: explicit uses current time, implicit uses t+dt
+            if integrator.isExplicit():
+                assembly_time = self._time
+            else:
+                assembly_time = self._time + dt
+            model._assemble(time=assembly_time)
+
+            # New step (integrator sets up predictor, stores M/C, etc.)
+            integrator.newStep(model, dt, self._time)
+
+            # Solve (algorithm calls formTangent/formUnbalance/solve/update)
+            algorithm.solve(model, self.uu, self.pp,
+                            integrator, self._system_of_equations,
+                            self._convergence_test)
+
+            # Commit (advance internal state, commit elements)
+            integrator.commit(model)
+
+            # Record
+            model._record(time=self._time + dt)
+
+            # Advance time
+            self._time += dt

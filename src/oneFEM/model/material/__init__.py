@@ -1,16 +1,14 @@
 # oneFEM/model/material/__init__.py
 
 from .main import Material
+from . import nD
+from . import uniaxial
 
-# nD materials
-from .nD.elastic_isotropic import ElasticIsotropic
-
-# uniaxial (1D) materials
-from .uniaxial.elastic import Elastic1D
-
+# delete modules imported from .py directories
+del main
 
 __all__ = [
     "Material",
-    "ElasticIsotropic",
-    "Elastic1D"
+    "nD",
+    "uniaxial"
 ]

@@ -1,31 +1,22 @@
 # oneFEM/model/element/__init__.py
 
-from .main import Element
+from .main import Element # maybe this is not necessary
 from . import section
+from . import beam
+from . import shell
+from . import solid
+from . import zerolength
+from . import truss
 
-# Beam-Column elements
-from .beam.bernoulliBeam import BernoulliBeam
-from .beam.dispBeamColumn import DispBeamColumn
-
-# Shell elements
-from .shell.shellQ4 import ShellQ4
-
-# Solid elements
-from .solid.triangular import Tri3
-from .solid.quadrilateral import Quad4
-
-# Zero-length elements
-from .zerolength.zerolength import ZeroLength
-from .zerolength.zerolength_contact import ZLContact
+# delete modules imported from .py directories
+del main
 
 __all__ = [
     "section",
     "Element",
-    "BernoulliBeam",
-    "DispBeamColumn",
-    "ShellQ4",
-    "Tri3",
-    "Quad4",
-    "ZeroLength",
-    "ZLContact"
+    "beam",
+    "shell",
+    "solid",
+    "zerolength",
+    "truss"
 ]

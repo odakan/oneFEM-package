@@ -41,7 +41,6 @@ Interactive usage:
     >>> column.add(Node(nID_2, [xCrd, yCrd, zCrd]))
     >>> column.add(Node(nID_3, [xCrd, yCrd, zCrd]))
     >>> column.add(BernoulliBeam(eID_1, [nID_1, nID_2], E=1e9))
-    >>> column.add(Fix(ID, [nID_1, nID_3], [1, 1, 1, 1, 1, 1]))
     >>> column.add.load(nID_1, '')
     >>> column.add.load('')
     >>> column.add.pattern(ID, horizontal_load)
@@ -64,7 +63,7 @@ from . import input         # Import input module
 
 # Import top-level objects
 from ._systools.simulation_manager import SimulationManager # Simulation Manager tool
-from ._systools import source                               # The source command
+from ._systools.source import source                        # The source command
 from ._systools import data                                 # The data module
 
 # Optional: Define a version number or metadata for your package

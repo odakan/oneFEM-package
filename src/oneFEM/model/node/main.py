@@ -8,100 +8,173 @@
 #                         15 January 2022                                 #
 #                                                                         #
 ##-----------------------------------------------------------------------##
+# 
+# Author: Onur Deniz Akan
+# Date: 08/02/2025
+# Version: 0.1
+#
 #NODE main object definition
 #   definition of a FE node object and functions operating over a node
+#   object. The node object is defined with the following attributes:
+#   mass, fixity, and coordinate information
+
+from ..._systools.data.vector import Vector
 
 class Node(object):
-    def ONE_Node(self, cmd):
-        # create and return the node object with the specifications in the command 
-        #check length of command
-        length = len(cmd)
-        if not length == 2:
-            raise ValueError("NODE: Node input must be a list of length 2!\n Exit code: -1")
-            #raise an error
-
-
-    def __init__(self, node_id, coords):
+    def __init__(self, nodeID=-1):
         """
         Node Constructor
-        :param node_id: Node ID (integer)
-        :param n_dof: Number of Degrees of Freedom (2 or 3)
-        :param coords: 2D coordinates as a list [X, Y]
-        :param fix: Fixity constraints as a list [fix1, fix2, ...]
-        :param loads: Loads as a list [l1, l2, ...]
+        :param nodeID: Node ID (integer)
         """
-        if not isinstance(node_id, int) or isinstance(node_id, bool):
-            raise ValueError("Node ID must be an integer!")
-        
-        if n_dof not in (2, 3):
-            raise ValueError("Number of DOF can be either 2 or 3!")
-        
-        if len(coords) != 2:
-            raise ValueError("Node coordinates must be in 2D!")
-        
-        if len(fix) != n_dof:
-            raise ValueError("Number of DOF and fix constraints do not match!")
-        
-        if len(loads) != n_dof:
-            raise ValueError("Number of DOF and loads do not match!")
-        
-        self.ID = node_id
-        self.nDOF = n_dof
-        self.coords = coords
-        self.fix = [int(f) for f in fix]
-        self.force = [0.0] * n_dof
-        self.imposed = [0.0] * n_dof
-        
-        for i in range(n_dof):
-            if self.fix[i] == 0:  # Free DOF
-                self.force[i] = loads[i]
-            elif self.fix[i] == 1:  # Fixed DOF
-                self.imposed[i] = loads[i]
-            else:
-                raise ValueError("Fix constraints must be 0 (free) or 1 (fixed)!")
-        
+        self._ID = nodeID
+        self._nD = 0
+        self._nDOF = 0
+        self._dofs = Vector(dtype=int)
+        self._coord = Vector()
+        self._mass = Vector()
+        self._fix = Vector(dtype=bool)
+              
         # Initialize solution-related variables
-        self.u_trial = [0.0] * n_dof
-        self.u_commit = [0.0] * n_dof
-        self.v_commit = [0.0] * n_dof
-        self.a_commit = [0.0] * n_dof
-    
-    def update(self, displacements):
+        self._f_trial = Vector()
+        self._u_trial = Vector()
+        self._v_trial = Vector()
+        self._a_trial = Vector()
+        self._f_commit = Vector()
+        self._u_commit = Vector()
+        self._v_commit = Vector()
+        self._a_commit = Vector()
+
+    # Node API (for internal use)
+    def _setDOF(self, dofs):
+        """
+        Set global dofs that maps to the local dofs
+        :param dofs: global degrees of freedom. list of integers e.g.: [10, 11, 12]
+        """
+        if len(dofs) == self._nDOF:
+            self._dofs = Vector(dofs, dtype=int)
+        else:
+            raise ValueError("oneFEM.Node._setDOF() - Number of DOF entries does not match node number of d.o.f.s!")
+
+    def _update(self, force, disp, vel=None, accel=None):
         """
         Update trial displacements
-        :param displacements: List of trial displacements
-        """
-        if len(displacements) != self.nDOF:
-            raise ValueError("Displacement length does not match DOF!")
-        self.u_trial = displacements
-    
-    def commit(self, displacements, velocities=None, accelerations=None):
-        """
-        Commit results to the node
         :param displacements: Displacements to commit
         :param velocities: (Optional) Velocities to commit
         :param accelerations: (Optional) Accelerations to commit
         """
-        if len(displacements) != self.nDOF:
-            raise ValueError("Displacement length does not match DOF!")
-        self.u_commit = displacements
-        if velocities:
-            self.v_commit = velocities
-        if accelerations:
-            self.a_commit = accelerations
+        self._f_trial = force
+        self._u_trial = disp
+        if vel is not None:
+            self._v_trial = vel
+        if accel is not None:
+            self._a_trial = accel
+
+        return 0
     
-    def result(self, query, dofs):
+    def _commitState(self):
+        """
+        Commit results to the node (deep copy to avoid aliasing)
+        """
+        self._f_commit = Vector(self._f_trial)
+        self._u_commit = Vector(self._u_trial)
+        self._v_commit = Vector(self._v_trial)
+        self._a_commit = Vector(self._a_trial)
+        return 0
+
+    def _revertToLastCommit(self):
+        """
+        Revert to the last commit (deep copy to avoid aliasing)
+        """
+        self._f_trial = Vector(self._f_commit)
+        self._u_trial = Vector(self._u_commit)
+        self._v_trial = Vector(self._v_commit)
+        self._a_trial = Vector(self._a_commit)
+        return 0
+    
+    def _revertToStart(self):
+        self._nD = 0
+        self._nDOF = 0
+        self._dofs = Vector(dtype=int)
+        self._coord = Vector()
+        self._mass = Vector()
+        self._fix = Vector(dtype=bool)
+        self._f_trial = Vector()
+        self._u_trial = Vector()
+        self._v_trial = Vector()
+        self._a_trial = Vector()
+        self._f_commit = Vector()
+        self._u_commit = Vector()
+        self._v_commit = Vector()
+        self._a_commit = Vector()
+        return 0
+
+    def _getTrialDisp(self):
+        return self._u_trial
+    
+    def _getTrialVel(self):
+        return self._v_trial
+    
+    def _getTrialAccel(self):
+        return self._a_trial
+    
+    def _getCommitDisp(self):
+        return self._u_commit
+    
+    def _getCommitVel(self):
+        return self._v_commit
+    
+    def _getCommitAccel(self):
+        return self._a_commit
+    
+    # Node API (public)
+    def setFix(self, fix):
+        """
+        Set displacement boundary conditions
+        :param fix: Fixities. list of bools e.g.: [True, False, False]
+        """
+        if len(fix) == self._nDOF:
+            self._fix = Vector(fix, dtype=bool)
+        else:
+            raise ValueError("oneFEM.Node.setFix() - Number of fix entries does not match node number of d.o.f.s!")
+
+    def setMass(self, mass):
+        """
+        Set d.o.f. masses
+        :param mass: Masses. list of floats e.g.: [1.0, 2.0, 3.0]
+        """
+        if len(mass) == self._nDOF:    
+            self._mass = Vector(mass, dtype=float)
+        else:
+            raise ValueError("oneFEM.Node.setMass() - Number of mass entries does not match node number of d.o.f.s!")
+    
+    def getResult(self, query, dofs):
         """
         Retrieve results for specific DOFs
-        :param query: String specifying the type of result ('disp', 'vel', or 'acc')
-        :param dofs: List of DOFs to query
+        :param query: String specifying the type of result ('disp', 'vel', or 'accel')
+        :param dofs: List of DOFs to query e.g. [1, 2, 3]
         :return: List of results for the specified DOFs
         """
         if query in {"disp", "displacement", "d", "u"}:
-            return [self.u_commit[d] for d in dofs]
+            return [self._u_commit[d-1] for d in dofs]
         elif query in {"vel", "velocity", "v"}:
-            return [self.v_commit[d] for d in dofs]
-        elif query in {"acc", "acceleration", "a"}:
-            return [self.a_commit[d] for d in dofs]
+            return [self._v_commit[d-1] for d in dofs]
+        elif query in {"accel", "acceleration", "a"}:
+            return [self._a_commit[d-1] for d in dofs]
         else:
-            raise ValueError("Unknown query type!")
+            raise ValueError("oneFEM.Node.getResult() - Unknown query type!")
+
+    def getCoordinates(self):
+        """Return a list of coordinates"""
+        return self._coord.data
+    
+    def getDOFs(self):
+        """Return a list of nodes"""
+        return self._dofs.data
+    
+    def getND(self):
+        """Return number of dimensions"""
+        return self._nD
+    
+    def getNDOF(self):
+        """Return number of dofs"""
+        return self._nDOF

@@ -9,6 +9,9 @@ from . import numberer
 from . import system
 from . import test
 
+# delete modules imported from .py directories
+del main
+
 __all__ = [
     "Analysis",
     "algorithm",

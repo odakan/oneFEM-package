@@ -1,79 +1,38 @@
-##-----------------------------------------------------------------------##
-#                                                                         #
-#      #--oneFEM--#: One 2D FEM software in a galaxy far far away         #
-#                                                                         #
-#                   Computational Mechanics 2022                          #
-#                       University of Pavia                               #
-#               Written by: Onur Deniz AKAN, IUSS Pavia                   #
-#                         27 January 2022                                 #
-#                                                                         #
-##-----------------------------------------------------------------------##
-#LINEAR solver sub-object definition
-#   Linear static solver
-
 import numpy as np
 from .main import Algorithm
+from ..._systools.data import Vector
 
 class Linear(Algorithm):
-    def __init__(self, ID=-1, nSteps=0, dt=0.0):
-        # Call the parent class constructor
-        super().__init__(ID, None, None, nSteps, dt)
-        self.ID = ID
-        self.nSteps = nSteps
-        self.dt = dt
+    def __init__(self, ID=-1):
+        super().__init__(ID)
 
-    @staticmethod
-    def add_analysis(data):
-        # Validate input
-        if len(data) < 5:
-            raise ValueError("Linear: Analysis input must be of 3 numbers and strings!")
-        
-        if not isinstance(data[3], (int, float)) or not isinstance(data[4], (int, float)):
-            raise ValueError("Linear: Analysis input must be numeric!")
+    def solve(self, model, uu, pp, integrator, system, test=None):
+        """Single-pass solve using integrator interface.
 
-        # Validate the ID
-        if not isinstance(data[0], int):
-            raise ValueError("Linear: Analysis ID must be an integer!")
+        integrator.formTangent() -> integrator.formUnbalance() ->
+        system.solve() -> integrator.update()
+        """
+        uu_idx = np.array(uu, dtype=int)
+        pp_idx = np.array(pp, dtype=int)
 
-        # Create and return the Linear analysis object
-        return Linear(ID=data[0], nSteps=data[3], dt=data[4])
+        integrator.formTangent(model, 'current')
+        integrator.formUnbalance(model)
 
-    def analyze(self, model):
-        # Perform initial assembly
-        model.assemble()
-        
-        # Organize degrees of freedom (DOFs)
-        self.organize(model)
-        
-        # Solve for each step
-        for _ in range(self.nSteps):
-            model = self.solve(model)
+        K_eff = integrator.getTangent()
+        R = integrator.getUnbalance()
 
-        return model
+        K_uu = K_eff[np.ix_(uu_idx, uu_idx)]
+        R_uu = R[uu_idx]
 
-    def solve(self, model):
-        # Compute displacement increment and reaction increment
-        # Displacement increment
-        uu = self.uu
-        pp = self.pp
-        K = model.K
-        F = model.F
-        u = model.u
-        
-        # Solve for displacements at free DOFs
-        u[uu] = np.linalg.solve(
-            K[np.ix_(uu, uu)],
-            F[uu] - K[np.ix_(uu, pp)].dot(u[pp])
-        )
-        
-        # Compute reactions at fixed DOFs
-        F[pp] = (
-            K[np.ix_(pp, pp)].dot(u[pp]) +
-            K[np.ix_(pp, uu)].dot(u[uu])
-        )
-        
-        # Update the model
-        model.u = u
-        model.F = F
-        
-        return model
+        dU_uu = system.solve(K_uu, R_uu)
+
+        dU = np.zeros(len(R))
+        dU[uu_idx] = dU_uu
+
+        integrator.update(model, dU)
+
+        # Reactions: F_int at fixed DOFs
+        F_int = model.getInternalForce()
+        F_data = np.asarray(model.F)
+        F_data[pp_idx] = F_int[pp_idx]
+        model.F = Vector(list(F_data))
