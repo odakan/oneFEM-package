@@ -54,5 +54,5 @@ class TotalLagrangianContinuumKinematics(_NonlinearContinuumBase):
         c = TotalLagrangianContinuumKinematics()
         if hasattr(self, '_nGP') and self._nGP is not None:
             c.initialize(self._nGP, self._nDim, self._nNodes,
-                         [m for m in self._dN_dX])
+                         [Matrix(init=m.data.copy()) for m in self._dN_dX])
         return c

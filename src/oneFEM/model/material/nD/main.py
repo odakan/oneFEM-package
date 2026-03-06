@@ -48,6 +48,17 @@ class nDMaterial(Material):
         """Accept CTensor (2nd order, COV)."""
         raise NotImplementedError("nDMaterial._setTrialStrain()")
 
+    def _setTrialStrainIncr(self, strain_incr):
+        """Accept incremental strain CTensor (2nd order, COV).
+        Default: total = committed + increment, then call _setTrialStrain."""
+        if not hasattr(self, '_eps_commit'):
+            raise AttributeError(
+                "nDMaterial._setTrialStrainIncr() - subclass '{}' does not define "
+                "_eps_commit. Override _setTrialStrainIncr() or add committed strain "
+                "tracking.".format(type(self).__name__))
+        total_strain = self._eps_commit + strain_incr
+        self._setTrialStrain(total_strain)
+
     def _setTrialF(self, F):
         """Accept deformation gradient F (Matrix, nDim x nDim).
         Default: extract Green-Lagrange E = 0.5*(F^T F - I), delegate to _setTrialStrain.

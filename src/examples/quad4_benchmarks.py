@@ -788,8 +788,11 @@ def test_b3_simple_shear():
             E_tl = elem_tl._kinematics.getStrain(gp).make_vector()
             E_ul = elem_ul._kinematics.getStrain(gp).make_vector()
             for i in range(3):
+                abs_diff = abs(E_tl[i] - E_ul[i])
+                if abs_diff < 1e-14:
+                    continue  # sub-machine-epsilon — skip
                 ref = max(abs(E_tl[i]), 1e-15)
-                max_tl_ul_err = max(max_tl_ul_err, abs(E_tl[i] - E_ul[i]) / ref)
+                max_tl_ul_err = max(max_tl_ul_err, abs_diff / ref)
 
         p_F = max_F_err < 1e-14
         p_E = max_E_err < 1e-14

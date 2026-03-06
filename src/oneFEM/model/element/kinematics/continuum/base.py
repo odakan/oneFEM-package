@@ -95,6 +95,15 @@ class ContinuumKinematics(Kinematics):
         """Revert trial state to last committed. Override in UL."""
         pass
 
+    @property
+    def needs_incremental_u(self):
+        """Whether this formulation expects incremental displacement. Override in UL."""
+        return False
+
+    def _setMaterialStrain(self, material, strain):
+        """Push strain to material. Override in UL to call _setTrialStrainIncr."""
+        material._setTrialStrain(strain)
+
     def copy(self):
         """Return a deep copy of this kinematics object."""
         raise NotImplementedError("ContinuumKinematics.copy()")

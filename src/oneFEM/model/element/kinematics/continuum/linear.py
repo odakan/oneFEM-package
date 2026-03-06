@@ -121,7 +121,7 @@ class LinearContinuumKinematics(ContinuumKinematics):
         c = LinearContinuumKinematics(bbar=self._bbar)
         if self._nGP is not None:
             c.initialize(self._nGP, self._nDim, self._nNodes,
-                         [m for m in self._dN_dX],
+                         [Matrix(init=m.data.copy()) for m in self._dN_dX],
                          gp_weights=self._gp_weights)
         return c
 

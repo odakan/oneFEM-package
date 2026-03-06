@@ -47,6 +47,8 @@ class ContinuumElement(Element):
         self._gp_data = []           # list of (detJ, weight) per GP
         self._nDOF_total = 0
         self._m = None               # mass matrix, built by subclass if needed
+        self._committed_u_e = None
+        self._committed_u_e_backup = None
 
     def _domain(self):
         """Initialize element geometry, allocate arrays, copy materials per GP."""
@@ -113,35 +115,39 @@ class ContinuumElement(Element):
         self._k = K0
         self._f = Vector(shape=nDOF)
 
+        # Track committed displacement for incremental formulations (UL)
+        self._committed_u_e = Vector(shape=self._nDOF_total)
+        self._committed_u_e_backup = Vector(shape=self._nDOF_total)
+
     def _update(self):
         """Extract nodal displacements, update kinematics and materials per GP."""
         nDim = self._nD
         nNodes = len(self._nodes)
 
-        # NOTE: u_e is the TOTAL displacement from the original coordinates.
-        # For TL kinematics this is correct (reference = original config).
-        # For UL kinematics this is wrong: UL updates dN_dX to the last
-        # committed config, so it expects incremental displacement, not total.
-        # The error is invisible for rectangular elements (dN_dX_updated ~=
-        # dN_dX_original) but produces wrong strains for non-rectangular
-        # elements (arch, annular meshes). See docs/known_issues.md.
+        # Total displacement from original coordinates
         u_e = Vector(shape=nDim * nNodes)
         for i, nd in enumerate(self._nodes):
             u_nd = nd._getTrialDisp()
             for j in range(nDim):
                 u_e[i * nDim + j] = u_nd[j]
 
+        # For UL: kinematics expects incremental displacement from committed config
+        if self._kinematics.needs_incremental_u:
+            u_for_kin = Vector(init=(u_e.data - self._committed_u_e.data))
+        else:
+            u_for_kin = u_e
+
         # Pass 1: update kinematics at all GPs
         for gp in range(len(self._gp_data)):
-            self._kinematics.update(gp, u_e)
-        self._kinematics.applyCorotFrame(u_e)
+            self._kinematics.update(gp, u_for_kin)
+        self._kinematics.applyCorotFrame(u_for_kin)
 
-        # Pass 2: push strain to materials
+        # Pass 2: push strain to materials via kinematics hook
         for gp in range(len(self._gp_data)):
             strain = self._kinematics.getStrain(gp)
-            self._materials[gp]._setTrialStrain(strain)
+            self._kinematics._setMaterialStrain(self._materials[gp], strain)
 
-        self._buildStiffnessAndForce(u_e)
+        self._buildStiffnessAndForce(u_for_kin)
         return 0
 
     def _buildStiffnessAndForce(self, u_e):
@@ -172,6 +178,9 @@ class ContinuumElement(Element):
 
     def _commit(self):
         """Commit kinematics and materials."""
+        # Backup committed displacement before updating (for revert)
+        self._committed_u_e_backup = Vector(init=self._committed_u_e.data.copy())
+
         X_current = self._buildCurrentCoords()
         self._kinematics.commitState(X_current=X_current)
 
@@ -183,6 +192,14 @@ class ContinuumElement(Element):
 
         for mat in self._materials:
             mat._commitState()
+
+        # Update committed displacement from committed node state
+        nDim = self._nD
+        for i, nd in enumerate(self._nodes):
+            u_commit = nd._getCommitDisp()
+            for j in range(nDim):
+                self._committed_u_e[i * nDim + j] = u_commit[j]
+
         return 0
 
     def _revert(self):
@@ -190,6 +207,7 @@ class ContinuumElement(Element):
         self._kinematics.revertToLastCommit()
         for mat in self._materials:
             mat._revertToLastCommit()
+        self._committed_u_e = Vector(init=self._committed_u_e_backup.data.copy())
         return 0
 
     def _buildCurrentCoords(self):
