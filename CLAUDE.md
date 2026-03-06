@@ -18,6 +18,28 @@ This is mandatory, not optional.** It contains:
 
 If you have not read it, stop and read it now.
 
+## Backend Strategy (Hardware Abstraction)
+
+oneFEM is **pure Python with swappable array backends**. All numerical computation uses a numpy-compatible API. The abstraction point is `_systools/backend.py` (planned) — one import swap targets different hardware:
+
+| Backend | Hardware | WP | Role |
+|---|---|---|---|
+| **numpy** | CPU | current | Default, always works |
+| **CuPy** | NVIDIA GPU | WP13 | Drop-in numpy for GPU assembly/solve |
+| **JAX** | GPU, TPU, XLA | — | `jax.grad` → auto-tangents for any material; eliminates hand-coded C=dσ/dε |
+| **PyTorch** | NVIDIA, Apple MPS, Intel XPU, TPU | WP19 | Neural material surrogate bridge |
+| **MLX** | Apple Silicon (unified memory) | WP23-24 | Zero-copy CPU↔GPU, SoC thesis target |
+| **dpnp** (Intel oneAPI) | Intel GPU, FPGA | — | Intel SoC path |
+
+**Design rules:**
+1. All array code uses `xp.zeros`, `xp.linalg.solve`, etc. (numpy API standard, NEP 47)
+2. `_systools/backend.py` owns `import numpy as xp` — swap this one line to retarget
+3. Element integration loops must be **batchable** (stack per-GP arrays → one matmul) for GPU efficiency
+4. **UnifiedAllocator** (WP23-24) manages *where* arrays live (host/device/unified) — sits below the array API
+5. Never add C++/Cython/pybind11 unless a Python backend genuinely cannot meet the requirement (ADR-008)
+
+**`_systools/backend.py` exists.** All data wrappers (Vector, Matrix, Tensor, CTensor) import `np` from it. To retarget hardware, swap the one import in `backend.py`. Code outside `_systools/data/` still uses `import numpy as np` directly — migrate module-by-module as needed during WP13.
+
 ## Build & Install
 
 ```bash
@@ -48,6 +70,22 @@ cd src && python truss.py
 - `src/dynamic_truss.py` — SDOF truss Newmark vs closed-form, 3 solver configs (ALL PASS, rel error < 1e-4)
 - `src/eigen_truss.py` — Eigenvalue/modal analysis: SDOF analytical, 2-element reference, modal properties, solver cross-check (ALL PASS, rel error < 1e-10)
 - `src/epp_truss.py` — Nonlinear static: EPP two-truss system with Newton-Raphson, Newton elastic regression, Newton vs Linear comparison (ALL PASS)
+- `src/examples/beam.py` — ElasticBeamColumn2d/3d with LinearCrdTransf2d/3d: 5 tests 2D (stiffness, cantilever load/moment, simply supported, inclined) + 5 tests 3D (stiffness, Y/Z bending, torsion, inclined) (ALL PASS, rel error < 1e-10)
+- `src/examples/column_buckling.py` — PDelta/Corot CrdTransf 2D/3D with DisplacementControl: amplification tests (PDelta, Corot 1-elem, Corot 10-elem vs exact), P_cr detection via eigenvalue monitoring (PDelta single-elem, Corot 10-elem vs Euler), 8 tests (ALL PASS, P_cr err < 3%)
+- `src/examples/quad4_patch_test.py` — MacNeal-Harder 4-element patch test (9 nodes, 1 irregular interior): 3 constant stress states × (GP stress + interior node solve), 6 tests (ALL PASS, err < 1e-15)
+- `src/examples/quad4_cooks_membrane.py` — Cook's membrane Quad4 convergence: 5 meshes (2x2→32x32), monotonic convergence + 16x16 v_tip > 23.0, 2 tests (ALL PASS)
+- `src/examples/corot_benchmarks.py` — Corotational beam benchmarks: Part A snap-through arch (P_cr within 0.1% of Crisfield ref), Part B Lee's frame qualitative (Newton convergence + nonlinear response), 5 tests (ALL PASS)
+- `src/examples/hex8_benchmarks.py` — Hex8 B-bar element: 3D patch test (6 states × bbar on/off, 12 tests), thick-walled cylinder Lamé (bbar vs std, 2 tests), cantilever 40×4×4 (1 test), Cook's 3D vs Quad4 (1 test), 16 tests (ALL PASS)
+- `src/examples/corot_continuum_benchmarks.py` — CorotContinuumKinematics Quad4: Newton convergence, Corot==TL==UL small load, large deformation, patch test, 5 tests (ALL PASS)
+- `src/examples/quad4_benchmarks.py` — Consolidated Quad4 full kinematics validation suite, 8 benchmarks (ALL PASS):
+  - B1: Patch test (Linear, GATE) — MacNeal-Harder 9-node 4-element, 3 load cases, err < 1e-15
+  - B2: Cook's membrane (Linear) — 4 meshes convergence, 16×16 v_tip > 23.0
+  - B3: Simple shear (TL + UL) — F, GL strain analytical, TL==UL, 4 γ values, err < 1e-14
+  - B4: Cantilever large deformation (TL + UL) — 20×1 mesh, Newton convergence, TL==UL agreement
+  - B5: Snap-through arch (TL only) — 20×1 circular arch, displacement control, P_cr from first peak (UL excluded, see docs/known_issues.md)
+  - B6: Lee's frame (Corot beams) — 10 elem/member, Newton convergence + nonlinear response + completion
+  - B7: Column buckling (Corot beams) — 10-elem Corot, P_cr via eigenvalue monitoring, err < 3% vs Euler
+  - B8: Thick-walled cylinder (Linear + TL + UL) — 8×4 quarter-annulus, Lamé solution, err < 3% (small load), < 15% (large load)
 - `examples/test_model/` — model definition files (`.txt` format)
 
 ## Current Implementation Status
@@ -63,7 +101,7 @@ Check it before starting any task. If you finish a WP, update this table.
 | `Domain` | ✅ Working | `model/main.py` | Static + dynamic + eigen |
 | `Node` base | ✅ Working | `model/node/main.py` | |
 | `Node22`, `Node23`, `Node36` | ✅ Working | `model/node/` | |
-| `Node24`, `Node33`, `Node34` | ⚠️ Partial | `model/node/` | Exist, not benchmarked; Node33 has known bugs |
+| `Node24`, `Node33`, `Node34` | ⚠️ Partial | `model/node/` | Exist, not benchmarked; Node33 used by Hex8 (working) |
 | `Node37` (warping DOF) | ⚠️ Partial | `model/node/` | Exists, not benchmarked |
 | `SP_Constraint` | ✅ Working | `model/constraint/` | Homogeneous only |
 | `MP_Constraint` (EqualDOF) | ⚠️ Stub | `model/constraint/multipoint/` | Exists as empty stub |
@@ -76,13 +114,18 @@ Check it before starting any task. If you finish a WP, update this table.
 | Component | Status | Location | Notes |
 |---|---|---|---|
 | `Truss` (2D/3D) | ✅ Working | `model/element/truss/` | Benchmarked in `src/truss.py` |
-| `ElasticBeamColumn` | ✅ Exists | `model/element/beam/` | Needs CrdTransf |
+| `ElasticBeamColumn2d` | ✅ Working | `model/element/beam/` | Benchmarked in `src/examples/beam.py` |
+| `ElasticBeamColumn3d` | ✅ Working | `model/element/beam/` | Benchmarked in `src/examples/beam.py` |
 | `ZeroLength` | ✅ Exists | `model/element/zerolength/` | |
 | `ShellQ4` | ⚠️ Stub | `model/element/shell/` | Empty stub |
-| `Solid` (Quad4, Tri, Brick) | ⚠️ Stub | `model/element/solid/` | Empty stubs |
+| `Quad4` (continuum) | ✅ Working | `model/element/continuum/quad4.py` | Patch test 6/6 PASS, Cook's membrane convergence PASS |
+| `Hex8` (continuum, B-bar) | ✅ Working | `model/element/continuum/hex8.py` | B-bar default, 16 benchmarks PASS (patch, cylinder, cantilever, Cook's 3D) |
+| `Solid` (Tri, Brick) | ⚠️ Stub | `model/element/solid/` | Empty stubs |
 | `forceBeamColumn` (fiber) | 🔲 Planned | — | Needs FiberSection first |
-| `CrdTransf` (Linear2d/3d) | 🔲 Planned | — | Required before beam is reliable |
-| `CrdTransf` (Corotational) | 🔲 Planned | — | Geometric nonlinearity |
+| `CrdTransf` (Linear2d) | ✅ Working | `model/element/coordTransformation/` | Benchmarked |
+| `CrdTransf` (Linear3d) | ✅ Working | `model/element/coordTransformation/` | Benchmarked |
+| `CrdTransf` (PDelta2d/3d) | ✅ Working | `model/element/coordTransformation/` | Benchmarked in `src/examples/column_buckling.py` |
+| `CrdTransf` (Corot2d/3d) | ✅ Working | `model/element/coordTransformation/` | Benchmarked in `src/examples/column_buckling.py` |
 | `Section` (Rectangular) | ✅ Working | `model/element/section/` | |
 | `SectionForceDeformation` | 🔲 Planned | — | For beam-column elements |
 | `FiberSection` | ⚠️ Stub | `model/element/section/fiber_section.py` | Empty stub; needs SectionForceDeformation |
@@ -96,7 +139,7 @@ Check it before starting any task. If you finish a WP, update this table.
 | `Steel01` | 🔲 Planned | — | Priority for earthquake engineering |
 | `Concrete01` | 🔲 Planned | — | Priority for earthquake engineering |
 | `Hardening` (kinematic+isotropic) | 🔲 Planned | — | |
-| `ElasticIsotropic` (nD) | ⚠️ Stub | `model/material/nD/elastic_isotropic.py` | Empty stub |
+| `ElasticIsotropic` (nD) | ✅ Working | `model/material/nD/elastic_isotropic.py` | PlaneStress/PlaneStrain/3D, CTensor-based, benchmarked via Quad4 patch test |
 | `J2Plasticity` (nD) | 🔲 Planned | — | |
 | `ParallelMaterial` | 🔲 Planned | — | Needs `getCopy()` on all materials |
 | `NeuralMaterialSurrogate` | 🔲 WP19 | — | The Oracle — research frontier |
@@ -109,7 +152,7 @@ Check it before starting any task. If you finish a WP, update this table.
 | `Newton` algorithm | ✅ Working | `analysis/algorithm/` | Benchmarked |
 | `KrylovNewton` | ✅ Exists | `analysis/algorithm/` | Not benchmarked |
 | `LoadControl` | ✅ Working | `analysis/integrator/` | |
-| `DisplacementControl` | ✅ Exists | `analysis/integrator/` | |
+| `DisplacementControl` | ✅ Working | `analysis/integrator/` | Benchmarked in `src/examples/column_buckling.py` |
 | `Newmark` | ✅ Working | `analysis/integrator/` | Benchmarked in `src/dynamic_truss.py` |
 | `CentralDifference` | ✅ Exists | `analysis/integrator/` | |
 | `HHT / GeneralizedAlpha` | 🔲 Planned | — | Numerical damping |

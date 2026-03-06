@@ -1,4 +1,4 @@
-# oneFEM/model/element/shell__init__.py
+# oneFEM/model/element/shell/__init__.py
 
 # Shell elements
 from .shellQ4 import ShellQ4

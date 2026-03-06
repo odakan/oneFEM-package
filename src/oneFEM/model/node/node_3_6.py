@@ -57,6 +57,8 @@ class Node36(Node):
 
         if len(coord) == self._nD:
             self._coord = Vector(coord, dtype=float)
+        elif len(coord) == 0:
+            pass
         else:
             raise ValueError("oneFEM.Node36() - Number of coordinate entries does not match node dimension!")
 
@@ -75,7 +77,7 @@ class Node36(Node):
             raise ValueError("oneFEM.Node36() - Number of fix entries does not match node number of d.o.f.s!")
         
     def __repr__(self):
-        return f"Node36(ID={self._id}, Coord={list(self._coord)}, Fix={list(self._fix)})"
+        return f"Node36(ID={self._ID}, Coord={list(self._coord)}, Fix={list(self._fix)})"
 
 
     # Node API

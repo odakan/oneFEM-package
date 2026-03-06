@@ -18,8 +18,7 @@
 
 import warnings
 from ..math_tools import _is_close
-from numpy import dot, cross, sqrt, abs as np_abs
-from numpy import array, copy, zeros, ndarray, asarray
+from ..backend import np
 
 class Vector(object):
     def __init__(self, init=None, shape=0, row_vector=True, dtype=float):
@@ -40,21 +39,21 @@ class Vector(object):
         if isinstance(init, list):
             if len(init) > 0:
                 self.__length = len(init)
-                self.__data = array(init, dtype=self.__dtype)
+                self.__data = np.array(init, dtype=self.__dtype)
             elif shape > 0:
-                self.__data = zeros(shape, dtype=self.__dtype)
+                self.__data = np.zeros(shape, dtype=self.__dtype)
             else:
-                self.__data = array([], dtype=self.__dtype)
+                self.__data = np.array([], dtype=self.__dtype)
 
         elif isinstance(init, Vector):
             self.__copy(init)
 
-        elif isinstance(init, ndarray):
-            self.__data = copy(init).astype(self.__dtype).flatten()
+        elif isinstance(init, np.ndarray):
+            self.__data = np.copy(init).astype(self.__dtype).flatten()
             self.__length = len(self.__data)
 
         elif shape > 0:
-            self.__data = zeros(shape, dtype=self.__dtype)
+            self.__data = np.zeros(shape, dtype=self.__dtype)
 
         else:
             raise ValueError("Vector.__init__(): data type not supported")
@@ -79,7 +78,7 @@ class Vector(object):
 
     # private methods
     def __copy(self, vector_other):
-        self.__data = copy(vector_other.data)
+        self.__data = np.copy(vector_other.data)
         self.__length = vector_other.length
         self.__is_row_vector = vector_other.is_row_vector
         self.__dtype = vector_other.dtype
@@ -87,7 +86,7 @@ class Vector(object):
     # indexing support
     def __getitem__(self, key):
         result = self.__data[key]
-        if isinstance(result, ndarray):
+        if isinstance(result, np.ndarray):
             return Vector(list(result), dtype=self.__dtype)
         return result
 
@@ -128,6 +127,14 @@ class Vector(object):
         return Vector(list(self.__data + vector_other), dtype=self.__dtype)
 
 
+    #implement in-place addition
+    def __iadd__(self, vector_other):
+        if isinstance(vector_other, Vector):
+            self.__data += vector_other.data
+        else:
+            self.__data += vector_other
+        return self
+
     #implement subtraction
     def __sub__(self, vector_other):
         if isinstance(vector_other, Vector):
@@ -155,37 +162,36 @@ class Vector(object):
     # linear algebra
     def dot(self, other):
         if isinstance(other, Vector):
-            return float(dot(self.__data, other.data))
-        return float(dot(self.__data, asarray(other)))
+            return float(np.dot(self.__data, other.data))
+        return float(np.dot(self.__data, np.asarray(other)))
 
     def outer(self, other):
         from .matrix import Matrix
-        from numpy import outer as np_outer
         if isinstance(other, Vector):
-            return Matrix(init=np_outer(self.__data, other.data))
-        return Matrix(init=np_outer(self.__data, asarray(other)))
+            return Matrix(init=np.outer(self.__data, other.data))
+        return Matrix(init=np.outer(self.__data, np.asarray(other)))
 
     def _is_parallel(self, vector_other):
         # Check if two vectors are parallel
         # Parallel means cross product magnitude is ~0
-        c = cross(self.__data, vector_other.data)
-        return _is_close(float(dot(c, c)), 0.0)
+        c = np.cross(self.__data, vector_other.data)
+        return _is_close(float(np.dot(c, c)), 0.0)
 
 
     def _cross(self, vector_other):
-        return Vector(list(cross(self.__data, vector_other.data)))
+        return Vector(list(np.cross(self.__data, vector_other.data)))
 
 
     def _normalize(self):
-        magnitude = float(dot(self.__data, self.__data))
+        magnitude = float(np.dot(self.__data, self.__data))
         if _is_close(magnitude, 0.0):
             warnings.warn("Vector._normalize(): division by zero skipped!", RuntimeWarning)
             return
 
-        self.__data = self.__data / sqrt(magnitude)
+        self.__data = self.__data / np.sqrt(magnitude)
 
     def norm(self):
-        return float(sqrt(dot(self.__data, self.__data)))
+        return float(np.sqrt(np.dot(self.__data, self.__data)))
 
     def tolist(self):
         return self.__data.tolist()

@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oneFEM"
+version = "0.0.1"
+description = "A Python package for finite element modeling and analysis"
+readme = "README.md"
+license = "GPL-3.0-only"
+requires-python = ">=3.9"
+authors = [
+    {name = "FE Implementation Library", email = "fe.implement.library@gmail.com"},
+]
+keywords = ["finite element", "modeling", "analysis", "simulation", "FEM", "FEA"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Education",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "numpy>=1.21",
+    "scipy>=1.7",
+    "matplotlib>=3.4",
+]
+
+[project.optional-dependencies]
+interactive = ["ipython"]
+dev = ["build", "twine"]
+
+[project.urls]
+Homepage = "https://feimplementlib.github.io/"
+Repository = "https://github.com/feimplementlib/oneFEM"
+
+[project.scripts]
+oneFEM = "oneFEM._systools.cli:_cli_main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
