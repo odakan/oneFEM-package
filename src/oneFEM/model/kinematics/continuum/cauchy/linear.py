@@ -55,7 +55,7 @@ class LinearContinuumKinematics(ContinuumKinematics):
         If element= kwarg is provided, uses element API to build B matrices.
         Otherwise falls back to legacy path (dN_dX_list + _buildBMatrix).
         """
-        element = kwargs.get('element', None)
+        self._element = kwargs.get('element', None)
         self._nGP = nGP
         self._nDim = nDim
         self._nVoigt = 3 if nDim == 2 else 6
@@ -64,14 +64,15 @@ class LinearContinuumKinematics(ContinuumKinematics):
         self._B = []
         self._B_bar = []
         self._strain = [None] * nGP
+        self._gp_coords = None
 
-        if element is not None:
+        if self._element is not None:
             # v2 path: build B from element API
-            gauss_points = element.get_gauss_points()
+            gauss_points = self._element.get_gauss_points()
+            self._gp_coords = [gp_tuple[:-1] for gp_tuple in gauss_points]
             for gp in range(nGP):
-                gp_tuple = gauss_points[gp]
-                xi = gp_tuple[:-1]  # strip weight
-                B = element.get_B(xi)
+                xi = self._gp_coords[gp]
+                B = self._element.get_B(xi)
                 self._B.append(B)
         else:
             # Legacy path: build B from raw dN_dX
@@ -106,9 +107,16 @@ class LinearContinuumKinematics(ContinuumKinematics):
                 self._B_bar.append(Matrix(init=B_dev_gp + B_vol_bar_data))
 
     def update(self, gp, u_e):
-        """Compute eps = B @ u_e, cache as CTensor."""
+        """Compute eps = B @ u_e + enrichment, cache as CTensor."""
         B = self.getBMatrix(gp)
         eps_vec = B @ u_e
+        if self._element is not None and self._gp_coords is not None:
+            xi = self._gp_coords[gp]
+            enrich = self._element.get_strain_enrichment(xi)
+            if enrich is not None:
+                eps_data = eps_vec.data + enrich
+                self._strain[gp] = CTensor(eps_data.tolist(), self._nVoigt, CTensor.COV)
+                return
         self._strain[gp] = CTensor(eps_vec.data.tolist(), self._nVoigt, CTensor.COV)
 
     def getStrain(self, gp):
@@ -132,12 +140,12 @@ class LinearContinuumKinematics(ContinuumKinematics):
         """Assemble element tangent stiffness K = sum_gp B^T C B dV.
         Linear: no geometric stiffness, no transform."""
         nDOF = element.get_nDOF_total()
-        t = element._thickness
+        t = element.get_thickness()
         K = Matrix(shape=[nDOF, nDOF])
         for gp in range(self._nGP):
             B = self.getBMatrix(gp)
             C_mat = element.get_tangent(gp).to_matrix()
-            detJ, w = element._gp_data[gp]
+            detJ, w = element.get_gp_weight(gp)
             dV = detJ * w * t
             K += B.T @ C_mat @ B * dV
         return K
@@ -146,12 +154,12 @@ class LinearContinuumKinematics(ContinuumKinematics):
         """Assemble element internal force f = sum_gp B^T sigma dV.
         Linear: no transform."""
         nDOF = element.get_nDOF_total()
-        t = element._thickness
+        t = element.get_thickness()
         f = Vector(shape=nDOF)
         for gp in range(self._nGP):
             B = self.getBMatrix(gp)
             sig_vec = element.get_stress(gp).to_vector()
-            detJ, w = element._gp_data[gp]
+            detJ, w = element.get_gp_weight(gp)
             dV = detJ * w * t
             f += B.T @ sig_vec * dV
         return f

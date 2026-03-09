@@ -5,7 +5,9 @@
       "Bash(python:*)",
       "Bash(xargs grep:*)",
       "Bash(ls -la /c/Users/Deniz/GitHub/oneFEM-package/src/*.py)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(grep:*)",
+      "Read(//c/Users/Deniz/AppData/Local/Temp/claude/C--Users-Deniz-GitHub-oneFEM-package/tasks/**)"
     ]
   }
 }

@@ -8,7 +8,7 @@
 #  Tip load P=600 in the +Z direction (out of arch plane).
 #
 #  Mesh: 12x1x1 Hex8 (12 along arc, 1 radial, 1 width).
-#  Analysis: Newton + LoadControl, 10 equal load steps.
+#  Analysis: Newton + LoadControl, 20 equal load steps (default).
 #  Formulations: Linear, TL, UL, Corot.
 #
 #  Bathe & Bolourchi 1979 reference at P=600 (8 cubic beam elements):
@@ -22,22 +22,52 @@
 #  The paper reports magnitudes only. The negative sign was incorrectly
 #  assumed (radial inward). At theta=45deg, the dominant in-plane motion
 #  is tangential toward the fixed end, whose Y-component is positive.
-#  Mesh refinement (TL, UmfPackSOE + RCM) confirms convergence:
 #
-#    Mesh     | Elems | DOFs | ux       | uy     | uz      | uz_err% | Time
-#    ---------+-------+------+----------+--------+---------+---------+------
-#    12x1x1   |    12 |  156 |  -0.6148 | 1.9306 | 13.0535 |  75.6%  |  4.1s
-#    24x2x2   |    96 |  675 |  -3.4120 | 3.0643 | 23.0119 |  56.9%  | 39.7s
-#    48x4x4   |   768 | 3675 | -11.4610 | 7.0894 | 39.1936 |  26.6%  | 543.5s
-#    Bathe ref|     — |    — | -13.4    | 23.5   | 53.4    |   0%    |  —
+#  ----------------------------------------------------------------
+#  Mesh refinement study (TL formulation, all meshes converged)
+#  ----------------------------------------------------------------
 #
-#  Conclusion: shear locking confirmed. uz climbs monotonically toward
-#  53.4 (13.1 -> 23.0 -> 39.2), ux converges toward -13.4, and uy
-#  converges toward +23.5 (1.9 -> 3.1 -> 7.1). Error drops
-#  75.6% -> 56.9% -> 26.6% — classic h-refinement for a locking element.
-#  Standard Hex8 with full integration requires very fine meshes;
-#  matching Bathe's 8 cubic beam elements needs enhanced formulations
-#  (incompatible modes, reduced integration, or EAS).
+#    Mesh      | Incomp | ux_err% | uy_err% | uz_err%
+#    ----------+--------+---------+---------+--------
+#    12x1x1    |   No   |  95.4%  |  91.8%  |  75.6%
+#    24x1x1    |   No   |  74.5%  |  87.0%  |  56.9%
+#    48x1x1    |   No   |  16.4%  |  70.9%  |  27.3%
+#    24x4x4    |   No   |  73.4%  |  85.4%  |  55.6%
+#    48x4x4    |   No   |   —     |   —     |  26.6%
+#    12x1x1    |  Yes   |  39.7%  | 107%    |  51.2%
+#    24x1x1    |  Yes   |   5.2%  |  77.1%  |  23.1%
+#    48x4x4    |  Yes   |  21.9%  |  62.5%  |  12.7%
+#    Bathe ref |   —    |   0%    |   0%    |   0%
+#
+#  ----------------------------------------------------------------
+#  Conclusions
+#  ----------------------------------------------------------------
+#
+#  1. Incompatible modes halve uz error at equivalent mesh density.
+#     48x4x4 standard: 26.6% uz error -> 48x4x4 incompatible: 12.7%.
+#     24x1x1 standard: 56.9% -> 24x1x1 incompatible: 23.1%.
+#     The Wilson modes effectively reduce shear locking in the load
+#     direction, consistent with their design for bending-dominated
+#     response.
+#
+#  2. uy remains locking-dominated on curved geometry. Even at 48x4x4
+#     incompatible the uy error is 62.5%. The tangential displacement
+#     requires coupled membrane-bending response that Wilson modes
+#     (designed for flat-element shear locking) cannot unlock on curved
+#     elements. The G matrix built from J0 at the element center assumes
+#     locally flat geometry; curvature coupling defeats this assumption.
+#
+#  3. EAS formulation (Simo & Rifai 1990) is required for a full
+#     membrane locking cure on curved geometry. Wilson incompatible
+#     modes are a partial remedy (effective for uz/shear locking) but
+#     insufficient for the membrane component (uy). Arc-direction
+#     refinement is more effective than cross-section refinement when
+#     using Wilson modes on curved elements.
+#
+#  4. Corot (EICR) diverges at ~70-75% load on this problem regardless
+#     of step count (tested 20/40/60/80 steps). This is a formulation
+#     limit for combined bending + torsion + large rotation, not a
+#     Newton step-size issue.
 #
 #  Figures saved to docs/validation/hex8/:
 #    1. hex8_curved_deformed.png      — 4x4 grid deformed meshes

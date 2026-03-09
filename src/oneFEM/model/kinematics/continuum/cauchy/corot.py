@@ -226,10 +226,18 @@ class CorotContinuumKinematics(_NonlinearContinuumBase):
         x_cur = self._X_ref + u_e_np.reshape(self._nNodes, nDim)
         u_local_np = self._get_u_local(u_e_np, R, x_cur=x_cur)
 
-        # Step 3 — Linear strain per GP in corotated frame
+        # Step 3 — Linear strain per GP in corotated frame + enrichment
         u_local_vec = Vector(u_local_np)
         for gp in range(self._nGP):
             eps_vec = self._B_local[gp] @ u_local_vec
+            if self._element is not None:
+                xi = self._gp_coords[gp]
+                enrich = self._element.get_strain_enrichment(xi)
+                if enrich is not None:
+                    eps_data = eps_vec.data + enrich
+                    self._strain[gp] = CTensor(eps_data.tolist(),
+                                               self._nVoigt, CTensor.COV)
+                    continue
             self._strain[gp] = CTensor(eps_vec.data.tolist(),
                                        self._nVoigt, CTensor.COV)
 
@@ -321,13 +329,13 @@ class CorotContinuumKinematics(_NonlinearContinuumBase):
         """Assemble element tangent stiffness with corotational transform.
         K = T^T K_mat T + K_geo (K_geo already in global frame)."""
         nDOF = element.get_nDOF_total()
-        t = element._thickness
+        t = element.get_thickness()
         K_mat = Matrix(shape=[nDOF, nDOF])
         K_geo = Matrix(shape=[nDOF, nDOF])
         for gp in range(self._nGP):
             B = self.getBMatrix(gp)
             C_mat = element.get_tangent(gp).to_matrix()
-            detJ, w = element._gp_data[gp]
+            detJ, w = element.get_gp_weight(gp)
             dV = detJ * w * t
             K_mat += B.T @ C_mat @ B * dV
             Kg = self.getGeometricStiffness(gp, element.get_stress(gp))
@@ -338,12 +346,12 @@ class CorotContinuumKinematics(_NonlinearContinuumBase):
     def get_f_int(self, element):
         """Assemble element internal force with corotational transform."""
         nDOF = element.get_nDOF_total()
-        t = element._thickness
+        t = element.get_thickness()
         f = Vector(shape=nDOF)
         for gp in range(self._nGP):
             B = self.getBMatrix(gp)
             sig_vec = element.get_stress(gp).to_vector()
-            detJ, w = element._gp_data[gp]
+            detJ, w = element.get_gp_weight(gp)
             dV = detJ * w * t
             f += B.T @ sig_vec * dV
         _, f_global = self.transformToGlobal(Matrix(shape=[nDOF, nDOF]), f)

@@ -102,6 +102,7 @@ class ContinuumKinematics(Kinematics):
         """Whether this formulation expects incremental displacement. Override in UL."""
         return False
 
+
     def _setMaterialStrain(self, material, strain):
         """Push strain to material. Override in UL to call _setTrialStrainIncr."""
         material._setTrialStrain(strain)

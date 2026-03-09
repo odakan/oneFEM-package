@@ -981,6 +981,80 @@ def test_corot_incompatible():
 
 
 # ================================================================
+# Benchmark 9: Corot Large Deformation Cantilever
+# ================================================================
+
+def test_corot_large_deformation():
+    """Corot large deformation cantilever with incompatible modes.
+
+    Runs all 4 kinematics (Linear, TL, UL, Corot) at P=0.5 over 5 steps
+    on a 4x1x1 cantilever. Validates:
+      1. All 4 converge
+      2. Linear != TL (geometric NL matters at this load level)
+      3. TL == UL (<0.1%)
+      4. Corot ~= TL (<5% — different strain measures diverge at finite strain)
+      5. Corot ~= UL (<5%)
+      6. Linear > TL (geometric stiffening reduces tip deflection)
+      7. Corot uy > 0.1 (sanity: meaningful deformation)
+    """
+    nx, ny, nz = 4, 1, 1
+    L, b, h = 10.0, 1.0, 1.0
+    E, nu = 1000.0, 0.3
+    P_total = 0.5
+    nSteps = 5
+
+    uy_lin, conv_lin = _build_nonlinear_cantilever(
+        nx, ny, nz, L, b, h, E, nu, P_total, nSteps,
+        LinearContinuumKinematics, incompatible=True)
+    uy_tl, conv_tl = _build_nonlinear_cantilever(
+        nx, ny, nz, L, b, h, E, nu, P_total, nSteps,
+        TotalLagrangianContinuumKinematics, incompatible=True)
+    uy_ul, conv_ul = _build_nonlinear_cantilever(
+        nx, ny, nz, L, b, h, E, nu, P_total, nSteps,
+        UpdatedLagrangianContinuumKinematics, incompatible=True)
+    uy_corot, conv_corot = _build_nonlinear_cantilever(
+        nx, ny, nz, L, b, h, E, nu, P_total, nSteps,
+        CorotContinuumKinematics, incompatible=True)
+
+    # 1. All 4 converge
+    r1 = conv_lin and conv_tl and conv_ul and conv_corot
+
+    # 2. Linear != TL (>1% difference — geometric NL matters)
+    lin_tl_diff = abs(uy_lin - uy_tl) / abs(uy_tl)
+    r2 = lin_tl_diff > 0.01
+
+    # 3. TL == UL (<0.1%)
+    tl_ul_diff = abs(uy_tl - uy_ul) / abs(uy_tl)
+    r3 = tl_ul_diff < 0.001
+
+    # 4. Corot ~= TL (<5%)
+    corot_tl_diff = abs(uy_corot - uy_tl) / abs(uy_tl)
+    r4 = corot_tl_diff < 0.05
+
+    # 5. Corot ~= UL (<5%)
+    corot_ul_diff = abs(uy_corot - uy_ul) / abs(uy_ul)
+    r5 = corot_ul_diff < 0.05
+
+    # 6. Linear > TL (geometric stiffening reduces deflection)
+    r6 = uy_lin > uy_tl
+
+    # 7. Corot uy > 0.1 (sanity)
+    r7 = abs(uy_corot) > 0.1
+
+    print(f"    Lin={uy_lin:.6f}  TL={uy_tl:.6f}  UL={uy_ul:.6f}  Corot={uy_corot:.6f}")
+    print(f"    All converge:       {'PASS' if r1 else 'FAIL'}")
+    print(f"    Linear != TL:       {'PASS' if r2 else 'FAIL'}  (diff = {lin_tl_diff*100:.2f}%)")
+    print(f"    TL == UL (<0.1%):   {'PASS' if r3 else 'FAIL'}  (diff = {tl_ul_diff*100:.4f}%)")
+    print(f"    Corot ~= TL (<5%):  {'PASS' if r4 else 'FAIL'}  (diff = {corot_tl_diff*100:.2f}%)")
+    print(f"    Corot ~= UL (<5%):  {'PASS' if r5 else 'FAIL'}  (diff = {corot_ul_diff*100:.2f}%)")
+    print(f"    Linear > TL:        {'PASS' if r6 else 'FAIL'}")
+    print(f"    Corot uy > 0.1:     {'PASS' if r7 else 'FAIL'}  (uy = {uy_corot:.6f})")
+
+    results = [r1, r2, r3, r4, r5, r6, r7]
+    return sum(results), len(results)
+
+
+# ================================================================
 # Main
 # ================================================================
 
@@ -1074,6 +1148,15 @@ if __name__ == "__main__":
     print("    4x1x1 cantilever, E=1000, nu=0.3, P=0.01, 1 step")
     print("  " + "-" * 56)
     p, t = test_corot_incompatible()
+    total_pass += p
+    total_tests += t
+    print(f"    {p}/{t} PASS")
+
+    # Benchmark 9: Corot Large Deformation Cantilever
+    print("\n  Benchmark 9: Corot Large Deformation Cantilever")
+    print("    4x1x1, E=1000, nu=0.3, P=0.5, 5 steps, incompatible")
+    print("  " + "-" * 56)
+    p, t = test_corot_large_deformation()
     total_pass += p
     total_tests += t
     print(f"    {p}/{t} PASS")

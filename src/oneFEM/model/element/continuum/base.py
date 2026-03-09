@@ -489,7 +489,22 @@ class ContinuumElement(Element):
         """Return number of Gauss points."""
         return len(self._gp_data)
 
+    # --- Integration data ---
+
+    def get_thickness(self):
+        """Return element thickness (1.0 for 3D)."""
+        return self._thickness
+
+    def get_gp_weight(self, gp):
+        """Return (detJ, weight) tuple for Gauss point gp."""
+        return self._gp_data[gp]
+
     # --- Enrichment stubs ---
+
+    def get_strain_enrichment(self, xi):
+        """Return enrichment contribution to Voigt strain vector.
+        Default: None. Override in elements with incompatible modes."""
+        return None
 
     def get_H_enrichment(self, xi):
         """Return incompatible mode enrichment to displacement gradient H.

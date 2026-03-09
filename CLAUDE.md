@@ -40,14 +40,9 @@ oneFEM is **pure Python with swappable array backends**. All numerical computati
 | **MLX** | Apple Silicon (unified memory) | WP23-24 | Zero-copy CPU↔GPU, SoC thesis target |
 | **dpnp** (Intel oneAPI) | Intel GPU, FPGA | — | Intel SoC path |
 
-**Design rules:**
-1. All array code uses `xp.zeros`, `xp.linalg.solve`, etc. (numpy API standard, NEP 47)
-2. `_systools/backend.py` owns `import numpy as xp` — swap this one line to retarget
-3. Element integration loops must be **batchable** (stack per-GP arrays → one matmul) for GPU efficiency
-4. **UnifiedAllocator** (WP23-24) manages *where* arrays live (host/device/unified) — sits below the array API
-5. Never add C++/Cython/pybind11 unless a Python backend genuinely cannot meet the requirement (ADR-008)
+**Design rules:** (1) numpy API standard (NEP 47) everywhere. (2) `_systools/backend.py` owns `import numpy as xp` — one-line swap to retarget. (3) Integration loops must be batchable for GPU. (4) UnifiedAllocator (WP23-24) manages array placement. (5) No C++/Cython/pybind11 (ADR-008).
 
-**`_systools/backend.py` exists.** All data wrappers (Vector, Matrix, Tensor, CTensor) import `np` from it. To retarget hardware, swap the one import in `backend.py`. Code outside `_systools/data/` still uses `import numpy as np` directly — migrate module-by-module as needed during WP13.
+**`_systools/backend.py` exists.** Data wrappers import `np` from it. Code outside `_systools/data/` still uses `import numpy as np` directly — migrate module-by-module during WP13.
 
 ## Build & Install
 
@@ -75,31 +70,28 @@ cd src && python truss.py
 ```
 
 **Benchmarks (run from `src/`):**
-- `src/truss.py` — 3D triangle truss, verified against analytical direct stiffness solution (ALL PASS)
-- `src/dynamic_truss.py` — SDOF truss Newmark vs closed-form, 3 solver configs (ALL PASS, rel error < 1e-4)
-- `src/eigen_truss.py` — Eigenvalue/modal analysis: SDOF analytical, 2-element reference, modal properties, solver cross-check (ALL PASS, rel error < 1e-10)
-- `src/epp_truss.py` — Nonlinear static: EPP two-truss system with Newton-Raphson, Newton elastic regression, Newton vs Linear comparison (ALL PASS)
-- `src/examples/beam.py` — ElasticBeamColumn2d/3d with LinearCrdTransf2d/3d: 5 tests 2D (stiffness, cantilever load/moment, simply supported, inclined) + 5 tests 3D (stiffness, Y/Z bending, torsion, inclined) (ALL PASS, rel error < 1e-10)
-- `src/examples/column_buckling.py` — PDelta/Corot CrdTransf 2D/3D with DisplacementControl: amplification tests (PDelta, Corot 1-elem, Corot 10-elem vs exact), P_cr detection via eigenvalue monitoring (PDelta single-elem, Corot 10-elem vs Euler), 8 tests (ALL PASS, P_cr err < 3%)
-- `src/examples/quad4_patch_test.py` — MacNeal-Harder 4-element patch test (9 nodes, 1 irregular interior): 3 constant stress states × (GP stress + interior node solve), 6 tests (ALL PASS, err < 1e-15)
-- `src/examples/quad4_cooks_membrane.py` — Cook's membrane Quad4 convergence: 5 meshes (2x2→32x32), monotonic convergence + 16x16 v_tip > 23.0, 2 tests (ALL PASS)
-- `src/examples/corot_benchmarks.py` — Corotational beam benchmarks: Part A snap-through arch (P_cr within 0.1% of Crisfield ref), Part B Lee's frame qualitative (Newton convergence + nonlinear response), 5 tests (ALL PASS)
-- `src/examples/hex8_benchmarks.py` — Hex8 element: 3D patch test (6 states × bbar on/off, 12 tests), thick-walled cylinder Lamé (bbar vs std, 2 tests), cantilever 40×4×4 (1 test), Cook's 3D vs Quad4 (1 test), incompatible patch test (6 tests), locking comparison (3 tests), TL vs UL incompatible (4 tests), Corot incompatible (3 tests), 32 tests (ALL PASS)
-- `src/examples/corot_continuum_benchmarks.py` — CorotContinuumKinematics Quad4: Newton convergence, Corot==TL==UL small load, large deformation, patch test, 5 tests (ALL PASS)
-- `src/examples/quad4_benchmarks.py` — Consolidated Quad4 full kinematics validation suite, 8 benchmarks (ALL PASS):
-  - B1: Patch test (Linear, GATE) — MacNeal-Harder 9-node 4-element, 3 load cases, err < 1e-15
-  - B2: Cook's membrane (Linear) — 4 meshes convergence, 16×16 v_tip > 23.0
-  - B3: Simple shear (TL + UL) — F, GL strain analytical, TL==UL, 4 γ values, err < 1e-14
-  - B4: Cantilever large deformation (TL + UL) — 20×1 mesh, Newton convergence, TL==UL agreement
-  - B5: Snap-through arch (TL only) — 20×1 circular arch, displacement control, P_cr from first peak (UL excluded, see docs/known_issues.md)
-  - B6: Lee's frame (Corot beams) — 10 elem/member, Newton convergence + nonlinear response + completion
-  - B7: Column buckling (Corot beams) — 10-elem Corot, P_cr via eigenvalue monitoring, err < 3% vs Euler
-  - B8: Thick-walled cylinder (Linear + TL + UL) — 8×4 quarter-annulus, Lamé solution, err < 3% (small load), < 15% (large load)
+
+| Script | Tests | What |
+|---|---|---|
+| `truss.py` | ALL PASS | 3D triangle truss vs analytical stiffness |
+| `dynamic_truss.py` | ALL PASS | SDOF Newmark vs closed-form, 3 configs (err < 1e-4) |
+| `eigen_truss.py` | ALL PASS | Eigenvalue/modal analysis (err < 1e-10) |
+| `epp_truss.py` | ALL PASS | EPP Newton-Raphson, elastic regression |
+| `examples/beam.py` | 10 PASS | BeamColumn 2D/3D: stiffness, cantilever, inclined (err < 1e-10) |
+| `examples/column_buckling.py` | 8 PASS | PDelta/Corot CrdTransf, P_cr eigenvalue (err < 3%) |
+| `examples/quad4_patch_test.py` | 6 PASS | MacNeal-Harder patch test (err < 1e-15) |
+| `examples/quad4_cooks_membrane.py` | 2 PASS | Cook's membrane convergence (5 meshes) |
+| `examples/corot_benchmarks.py` | 5 PASS | Snap-through arch (Crisfield ref), Lee's frame |
+| `examples/hex8_benchmarks.py` | 39 PASS | Patch (12), cylinder (2), cantilever (1), Cook's 3D (1), incomp patch (6), locking (3), TL-UL (4), Corot (3), Corot large (7) |
+| `examples/hex8_curved_cantilever.py` | Visualization | Bathe & Bolourchi 1979 curved cantilever, TL/UL/Corot/Linear, locking study (not a gate test) |
+| `examples/corot_continuum_benchmarks.py` | 5 PASS | EICR Quad4: convergence, Corot==TL==UL, patch |
+| `examples/quad4_benchmarks.py` | 8 PASS | B1-B8: patch, Cook's, shear, cantilever NL, snap-through, Lee's, buckling, cylinder |
+
 - `examples/test_model/` — model definition files (`.txt` format)
 
 ## Current Implementation Status
 
-<!-- # verified 2026-03-05 -->
+<!-- # verified 2026-03-09 -->
 This table is the ground truth for what exists vs. what is planned.
 Check it before starting any task. If you finish a WP, update this table.
 
@@ -278,45 +270,43 @@ src/oneFEM/
 **Core classes:**
 - **Domain** (`model/main.py`): Central container holding nodes, elements, patterns, constraints, recorders, and global K/F/u (Matrix/Vector objects). Maintains `__node_map` dict for O(1) node lookup. Key methods: `add()`, `remove()`, `_domain()`, `_assemble()`, `_commit()`, `_record(time)`, `getInternalForce()`, `getCommittedDisp()`, `eigen(numModes)`, `modalProperties()`, `getEigenvalue(mode)`, `getEigenvector(mode)`. Properties: `nodes`, `elements`, `patterns`, `K`, `F`, `u`, `nDOF`.
 - **Analysis** (`analysis/main.py`): Orchestrates solution via pluggable Strategy components: Algorithm, Integrator, LinearSOE, Numberer, ConstraintHandler, Test.
-- **LinearSOE** (`analysis/system/linear_soe.py`): Base class for systems that own assembly (SparseAssembler) + solving (LinearSOESolver). Interface: `setSize`, `zeroA`, `addA`, `addM`, `addB`, `getK`, `getM`, `getB`, `getX`, `solve(A, b)`. Concrete: `SparseGeneral` (SpSolve), `UmfPackSOE` (UmfPackSolver). Legacy solve-only systems (`FullGeneral`, `ProfileSPD`) inherit from `System` base.
-- **LinearSOESolver** (`analysis/system/linear_soe.py`): Pluggable solver backend wired to a LinearSOE via `setLinearSOE(soe)`. Interface: `symbolic(K)`, `numeric(K)`, `solve(K, f)`. Concrete: `SpSolve` (stateless spsolve), `UmfPackSolver` (symbolic reuse, UMFPACK_ORDERING_NONE + STRATEGY_SYMMETRIC).
+- **LinearSOE** (`analysis/system/linear_soe.py`): Owns assembly (SparseAssembler) + solving (LinearSOESolver). Concrete: `SparseGeneral` (SpSolve, default), `UmfPackSOE` (UmfPackSolver, Linux). Legacy solve-only: `FullGeneral`, `ProfileSPD` (System base).
 - **Node** (`model/node/main.py`): Base class. Specializations named `Node{nDim}_{nDOF}` (e.g., `Node36` = 3D, 6-DOF). Maintains trial and committed states for displacement, velocity, acceleration, force.
 - **Element** (`model/element/main.py`): Abstract base. Subclasses must implement `_domain()`, `_commit()`, `_revert()`, `_update()`. Holds nodes, section, local k (Matrix) and f (Vector).
 - **Material** (`model/material/main.py`): Abstract base with `_setTrialStrain()`, `_commitState()`, `_revertToLastCommit()`. Uniaxial materials: `Elastic` (linear), `ElasticPerfectlyPlastic` (bilinear with zero post-yield hardening, tracks plastic strain).
 - **Section** (`model/element/section/main.py`): Holds material, computes section-level tangent (EA) and stress. `Rectangular` computes `EA = E * h * w` and updates tangent from material on each `_setTrialStrain` call.
-- **Recorders** (`output/recorder/`):
-  - `NodeRecorder(recID, nd, dofs, results, file)` — records nodal displacement/velocity/acceleration/reaction. Supports single node (backward compat) or list of nodes. Data in `rec.data[result_key]`; time in `rec.time`. Optional `file=` for incremental output; `save(path)` for batch output.
-  - `ElementRecorder(recID, ele, results, file)` — records element strain/stress/force/tangent. Single or list of elements. Same file output options.
-  - `ModeShapeRecorder(recID, domain, nodes, dofs, modes)` — captures eigenvector mode shapes after `eigen()`. Auto-triggered by `Domain._record_eigen()`. Data in `rec.data['mode_N']` = `{nodeID: [phi_vals]}`. Metadata: `eigenvalue_N`, `omega_N`, `freq_N`. `save(path)` writes formatted output. `getNodeModeShape(mode, nodeID)` accessor.
-  - **Data format**: single node/element → `data[key] = [val_per_step, ...]`; multi-node/element → `data[key] = [{ID: val, ...}, ...]`
-- **Eigen** (`analysis/eigen/main.py`): `Eigen(solver).solve(K, M, numModes)` — solves K·φ = λ·M·φ. Backends: `'fullGenLapack'` (scipy dense eigh), `'genBandArpack'` (scipy sparse eigsh, shift-invert, falls back to dense). Returns sorted eigenvalues (ω²) and mass-normalized eigenvectors.
+- **Recorders** (`output/recorder/`): `NodeRecorder`, `ElementRecorder`, `ModeShapeRecorder`. Support single or list of nodes/elements. Data in `rec.data[key]`; time in `rec.time`. Single item → `data[key] = [val_per_step, ...]`; multi → `data[key] = [{ID: val, ...}, ...]`. Optional `file=` for incremental output; `save(path)` for batch. ModeShapeRecorder auto-triggered by `Domain._record_eigen()`.
+- **Eigen** (`analysis/eigen/main.py`): `Eigen(solver).solve(K, M, numModes)` — K·φ = λ·M·φ. Backends: `'fullGenLapack'` (dense eigh), `'genBandArpack'` (sparse eigsh, shift-invert). Returns sorted eigenvalues (ω²) and mass-normalized eigenvectors.
 
 ### Continuum Element Enrichment API Contract
 
-Any continuum element implementing incompatible modes or other displacement enrichment must override the following five methods in the element class. The base class (`ContinuumElement`) provides default `None` returns so standard elements (Quad4, Tet4, etc.) require no changes.
+Any continuum element implementing incompatible modes or other displacement enrichment must override the following six methods in the element class. The base class (`ContinuumElement`) provides default `None` returns so standard elements (Quad4, Tet4, etc.) require no changes.
 
 ```
-get_H(xi, u_e)           — full enriched displacement gradient H = H_std + H_enrich
-get_F(xi, u_e)           — enriched deformation gradient F = I + H_enriched
-get_B_NL(xi, u_e)        — enriched nonlinear B matrix built from enriched F
-get_H_enrichment(xi)     — enrichment delta ONLY: returns H_enrich = get_H() - super().get_H()
-get_G(xi)                — incompatible mode strain matrix (6×nAlpha) for static condensation
+get_H(xi, u_e)              — full enriched displacement gradient H = H_std + H_enrich
+get_F(xi, u_e)              — enriched deformation gradient F = I + H_enriched
+get_B_NL(xi, u_e)           — enriched nonlinear B matrix built from enriched F
+get_H_enrichment(xi)        — enrichment delta ONLY: returns H_enrich = get_H() - super().get_H()
+get_strain_enrichment(xi)   — Voigt strain enrichment (e.g. G @ alpha); for strain-level injection
+get_G(xi)                   — incompatible mode strain matrix (6×nAlpha) for static condensation
 ```
 
-**Consistency requirement**: `get_H_enrichment(xi)` must return exactly `get_H(xi, u_e) - super().get_H(xi, u_e)`. All five methods must be mutually consistent.
+**Consistency requirement**: `get_H_enrichment(xi)` must return exactly `get_H(xi, u_e) - super().get_H(xi, u_e)`. `get_strain_enrichment(xi)` must return `get_G(xi) @ alpha`. All six methods must be mutually consistent.
 
 **Which kinematics consume which method:**
 
 | Kinematics | Injection point | Reason |
 |---|---|---|
-| Linear | `get_G(xi)` via condensation loop | strain-level assembly |
+| Linear | `get_strain_enrichment(xi)` in `update()` | strain-level enrichment (G@alpha) |
 | TotalLagrangian | `get_H(xi, u_e)` | computes H_total directly from nodal positions |
 | UpdatedLagrangian | `get_H_enrichment(xi)` | H_total built incrementally via `F_incr @ F_commit`; enrichment added as delta |
-| CorotContinuum | `get_F(xi, u_e)` → `get_H()` | polar decomposition requires full enriched F |
+| CorotContinuum | `get_F(xi, u_e)` for R extraction; `get_strain_enrichment(xi)` for corotated strain | polar decomp needs enriched F; strain needs enrichment in corotated frame |
+
+**Element accessor API**: Kinematics use `element.get_thickness()` and `element.get_gp_weight(gp)` — not private attributes `_thickness` or `_gp_data`.
 
 **Wilson-Taylor J₀ rule (ADR-009 amendment)**: J₀ and G matrices for incompatible mode enrichment are computed once from the original undeformed element geometry and **never refreshed**, regardless of kinematics formulation. This is distinct from `dN_dX` in the kinematics layer which follows the kinematics reference (UL advances at commit per Bathe FEP §6.2). J₀ is a Taylor et al. center-point patch-test correction — an element geometric property, not a kinematics reference quantity. Refreshing J₀ in UL produces non-monotonic TL-UL convergence and is wrong.
 
-**Reference implementations**: Hex8 — see `get_H_enrichment()`, `get_H()`, `get_F()`, `get_B_NL()`, `get_G()`. Mirror this pattern for Hex20, Tet10, or any future enriched element.
+**Reference implementations**: Hex8 — see `get_strain_enrichment()`, `get_H_enrichment()`, `get_H()`, `get_F()`, `get_B_NL()`, `get_G()`. Mirror this pattern for Hex20, Tet10, or any future enriched element.
 
 ### Data Structures (`_systools/data/`)
 
@@ -338,19 +328,7 @@ All stateful objects (Node, Material, Element) use a **trial/committed** two-sta
 
 ### Multiscale Vision (FE²)
 
-The architecture is designed for recursive multiscale analysis (computational homogenization). A `SimulationManager` that solves a micro-scale RVE boundary value problem acts as a `Material` inside an element at the macro scale:
-
-```
-MacroSimulationManager → Domain → Element → Material(=MicroSimulationManager)
-                                                 └→ Domain → Element → Material(conventional)
-```
-
-This works because `Material`'s interface (`_setTrialStrain`, `_commitState`, `_revertToLastCommit`) maps directly to driving a nested RVE solve:
-- `_setTrialStrain(macro_strain)` → applies macro strain as BCs on the RVE, runs inner `analyze()`
-- Returns homogenized stress and consistent tangent from the RVE solution
-- `_commitState()` / `_revertToLastCommit()` → propagates to the inner SimulationManager's domain
-
-The trial/committed state pattern at every level (Node, Material, Element, Domain) is what enables this nesting — each scale independently manages its own convergence.
+Recursive `SimulationManager` nesting: a micro-scale SM solving an RVE acts as a `Material` inside a macro element. The Material interface (`_setTrialStrain` → run inner solve → return homogenized stress/tangent; `_commitState`/`_revertToLastCommit` → propagate) enables this directly. Trial/committed pattern at every level (Node, Material, Element, Domain) makes each scale independently convergent.
 
 ## Code Conventions
 
@@ -363,6 +341,11 @@ The trial/committed state pattern at every level (Node, Material, Element, Domai
 - **No type hints** in the current codebase
 - **Relative imports** within the package
 - Python >= 3.7, < 4.0
+
+## Known Element Limitations
+
+- **Wilson incompatible modes + curved geometry**: Wilson modes halve uz (shear locking) error but cannot cure uy (membrane locking) on curved elements. G matrix built from J₀ at center assumes flat geometry; curvature coupling defeats this. Arc-only refinement outperforms cross-section refinement. EAS (Simo & Rifai 1990) required for full membrane locking cure. See `hex8_curved_cantilever.py` header for complete data.
+- **Corot (EICR) + large combined rotation**: Diverges at ~70-75% load on Bathe curved cantilever (combined bending + torsion + large rotation), independent of step count. Formulation limit, not Newton convergence issue.
 
 ## Common Pitfalls
 
@@ -378,10 +361,7 @@ The trial/committed state pattern at every level (Node, Material, Element, Domai
 - **Node subclasses must use single-underscore `_attr`** (not `__attr` name-mangling) for attributes accessed by the base class interface (`getNDOF()`, `getDOFs()`, `_fix`, etc.)
 - **nDMaterial and other Material subclasses** must call `super().__init__(mat_id)` to initialize the parent
 - **Rectangular section `_setTrialStrain`** must update `self._C` from material tangent (not just stress) for nonlinear materials
-- **Kinematics reference configuration rule (ADR-009)**: Two distinct categories of geometric descriptors, each with its own refresh rule:
-  - **Kinematics reference quantities** (dN/dX, X_ref): follow the kinematics formulation. Linear/TL/Corot: original undeformed, computed once at construction — never refreshed. UL: last committed state, refreshed at `commitState()` only (NOT during Newton iterations — Bathe FEP §6.2).
-  - **Wilson-Taylor enrichment quantities** (center-point J₀, G matrices, dM_dX): always original undeformed element geometry, **never refreshed**, all kinematics formulations. The Taylor et al. center-point correction is an element geometric property (locking artifact fix), not a kinematics reference quantity. Refreshing J₀ to committed config causes configuration-dependent errors in alpha that accumulate non-monotonically with load steps. Validated: original-config J₀ gives TL==UL to <0.01% with monotonic convergence under refinement; committed-config J₀ gave 11-20% non-monotonic divergence.
-  - UL gets enrichment via `element.get_H_enrichment(xi)` in its `update()` method (element API path). See `memory/kinematics_reference_rule.md`.
+- **Kinematics reference rule (ADR-009)**: Kinematics dN/dX follows formulation (UL refreshes at commit only — Bathe FEP §6.2; others never). Wilson-Taylor J₀/G always original config, never refreshed. See Enrichment API Contract section and `memory/kinematics_reference_rule.md`.
 
 ## Task Cookbook
 

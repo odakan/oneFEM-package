@@ -172,13 +172,13 @@ class UpdatedLagrangianContinuumKinematics(_NonlinearContinuumBase):
     def getK(self, element):
         """Assemble element tangent stiffness K = K_mat + K_geo."""
         nDOF = element.get_nDOF_total()
-        t = element._thickness
+        t = element.get_thickness()
         K_mat = Matrix(shape=[nDOF, nDOF])
         K_geo = Matrix(shape=[nDOF, nDOF])
         for gp in range(self._nGP):
             B = self.getBMatrix(gp)
             C_mat = element.get_tangent(gp).to_matrix()
-            detJ, w = element._gp_data[gp]
+            detJ, w = element.get_gp_weight(gp)
             dV = detJ * w * t
             K_mat += B.T @ C_mat @ B * dV
             Kg = self.getGeometricStiffness(gp, element.get_stress(gp))
@@ -188,12 +188,12 @@ class UpdatedLagrangianContinuumKinematics(_NonlinearContinuumBase):
     def get_f_int(self, element):
         """Assemble element internal force f = sum_gp B_NL^T sigma dV."""
         nDOF = element.get_nDOF_total()
-        t = element._thickness
+        t = element.get_thickness()
         f = Vector(shape=nDOF)
         for gp in range(self._nGP):
             B = self.getBMatrix(gp)
             sig_vec = element.get_stress(gp).to_vector()
-            detJ, w = element._gp_data[gp]
+            detJ, w = element.get_gp_weight(gp)
             dV = detJ * w * t
             f += B.T @ sig_vec * dV
         return f

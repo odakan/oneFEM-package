@@ -28,7 +28,6 @@ from .base import ContinuumElement, compute_jacobian
 from ...kinematics.continuum.cauchy.linear import LinearContinuumKinematics
 from ...._systools.backend import np
 from ...._systools.data import Vector, Matrix
-from ...._systools.data.ctensor import CTensor
 
 
 def _hex8_shape_functions(xi, eta, zeta):
@@ -266,6 +265,13 @@ class Hex8(ContinuumElement):
         alpha_mat = self._alpha.reshape(3, 3)
         return alpha_mat @ dM_dX
 
+    def get_strain_enrichment(self, xi):
+        """Return G @ alpha — incompatible mode strain enrichment."""
+        if not self._incompatible or self._J0_inv is None:
+            return None
+        G = self._build_G_matrix(*xi)
+        return G @ self._alpha
+
     def get_G(self, xi):
         """Return incompatible mode strain-displacement matrix G (6x9)."""
         if not self._incompatible:
@@ -286,49 +292,6 @@ class Hex8(ContinuumElement):
             self._precompute_incompatible()
         if self._rho > 0:
             self._buildMass()
-
-    def _update(self):
-        """Update element state with incompatible mode enrichment.
-
-        J₀ and G_list are NOT refreshed here. They stay at the committed
-        configuration throughout Newton iterations, consistent with Bathe's
-        UL where all reference quantities refer to the last converged state.
-        """
-        if not self._incompatible:
-            return super()._update()
-
-        nDim = self._nD
-        nNodes = len(self._nodes)
-
-        u_e = Vector(shape=nDim * nNodes)
-        for i, nd in enumerate(self._nodes):
-            u_nd = nd._getTrialDisp()
-            for j in range(nDim):
-                u_e[i * nDim + j] = u_nd[j]
-
-        if self._kinematics.needs_incremental_u:
-            u_for_kin = Vector(init=(u_e.data - self._committed_u_e.data))
-        else:
-            u_for_kin = u_e
-
-        for gp in range(len(self._gp_data)):
-            self._kinematics.update(gp, u_for_kin)
-        self._kinematics.applyCorotFrame(u_for_kin)
-
-        formulation = getattr(self._kinematics, 'formulation', 'linear')
-        for gp in range(len(self._gp_data)):
-            if formulation == 'linear':
-                B_np = np.asarray(self._kinematics.getBMatrix(gp))
-                G = self._G_list[gp]
-                eps = B_np @ np.asarray(u_e) + G @ self._alpha
-                eps_ct = CTensor(eps.tolist(), 6, CTensor.COV)
-                self._kinematics._setMaterialStrain(self._materials[gp], eps_ct)
-            else:
-                strain = self._kinematics.getStrain(gp)
-                self._kinematics._setMaterialStrain(self._materials[gp], strain)
-
-        self._buildStiffnessAndForce(u_for_kin)
-        return 0
 
     def _buildStiffnessAndForce(self, u_e):
         """Assemble element K and f with incompatible mode static condensation.
