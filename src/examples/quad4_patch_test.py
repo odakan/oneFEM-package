@@ -22,6 +22,9 @@ from oneFEM.model.material.nD.elastic_isotropic import ElasticIsotropic
 from oneFEM.model.pattern import Plain as PlainPattern
 from oneFEM.model.tseries import Constant
 from oneFEM._systools.data import Vector
+from oneFEM.analysis.main import Analysis
+from oneFEM.analysis.algorithm.linear import Linear
+from oneFEM.analysis.integrator.static.load_control import LoadControl
 
 # ---- Patch geometry ----
 node_coords = {
@@ -88,24 +91,20 @@ def build_model():
         elements[eid] = elem
         model.add(elem)
 
-    # Need at least one pattern for Domain to work
-    ts = Constant(1, factor=1.0)
-    pat = PlainPattern(1, ts)
-    model.add(pat)
-
     # Fix boundary nodes (no actual forces needed)
     for nid in boundary_nodes:
         nodes[nid].setFix([True, True])
 
-    # Initialize DOF numbering and element geometry
-    model._domain()
+    # Initialize via Analysis (DOF numbering + element setup)
+    analysis = Analysis(algorithm=Linear(), integrator=LoadControl(1))
+    analysis._analyze(model, nSteps=0, dt=0.0)
 
-    return model, nodes, elements
+    return model, nodes, elements, analysis
 
 
 def run_patch_test(load_case):
     """Impose analytical displacements on ALL nodes, check GP stresses."""
-    model, nodes, elements = build_model()
+    model, nodes, elements, _ = build_model()
 
     # Set analytical displacements on all nodes
     for nid, (x, y) in node_coords.items():
@@ -137,11 +136,11 @@ def run_patch_test(load_case):
 
 def run_interior_node_test(load_case):
     """Fix boundary nodes, solve for interior node, compare with analytical."""
-    model, nodes, elements = build_model()
+    model, nodes, elements, analysis = build_model()
 
-    # Assemble global stiffness
-    model._assemble()
-    K = np.asarray(model.K)
+    # Assemble K via the system
+    analysis._solution_integrator._assembleK(model)
+    K = analysis._assembly_system.getK().toarray()
     n = model.nDOF
 
     # DOF indices

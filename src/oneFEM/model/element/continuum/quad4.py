@@ -19,9 +19,61 @@
 #   Material: nDMaterial (PlaneStress or PlaneStrain)
 #   Kinematics: injected, defaults to LinearContinuumKinematics
 
+import warnings
 from .base import ContinuumElement
-from .isoparametric import quad4_gauss_points, quad4_shape_derivatives
-from ..kinematics.continuum.linear import LinearContinuumKinematics
+from ...kinematics.continuum.cauchy.linear import LinearContinuumKinematics
+from ...._systools.backend import np
+
+
+def _quad4_shape_functions(xi, eta):
+    """4-node bilinear quad shape functions.
+
+    Node ordering (CCW):
+        3 --- 2
+        |     |
+        0 --- 1
+
+    Natural coordinates: xi, eta in [-1, 1].
+
+    :param xi:  natural coordinate xi
+    :param eta: natural coordinate eta
+    :return: N array of shape (4,)
+    """
+    return 0.25 * np.array([
+        (1.0 - xi) * (1.0 - eta),
+        (1.0 + xi) * (1.0 - eta),
+        (1.0 + xi) * (1.0 + eta),
+        (1.0 - xi) * (1.0 + eta),
+    ])
+
+
+def _quad4_shape_derivatives(xi, eta):
+    """Natural derivatives dN/d(xi, eta) for 4-node bilinear quad.
+
+    :param xi:  natural coordinate xi
+    :param eta: natural coordinate eta
+    :return: dN_dxi array of shape (4, 2) — rows are nodes, cols are [dN/dxi, dN/deta]
+    """
+    return 0.25 * np.array([
+        [-(1.0 - eta), -(1.0 - xi)],
+        [ (1.0 - eta), -(1.0 + xi)],
+        [ (1.0 + eta),  (1.0 + xi)],
+        [-(1.0 + eta),  (1.0 - xi)],
+    ])
+
+
+def _quad4_gauss_points():
+    """2x2 Gauss quadrature points and weights for bilinear quad.
+
+    :return: list of (xi, eta, weight) tuples, 4 points
+    """
+    g = 1.0 / np.sqrt(3.0)
+    return [
+        (-g, -g, 1.0),
+        ( g, -g, 1.0),
+        ( g,  g, 1.0),
+        (-g,  g, 1.0),
+    ]
 
 
 class Quad4(ContinuumElement):
@@ -42,13 +94,30 @@ class Quad4(ContinuumElement):
     def __init__(self, tag, nodes, material, kinematics=None, thickness=1.0):
         if kinematics is None:
             kinematics = LinearContinuumKinematics()
+        # PhysicsFamily compatibility checks
+        pf = self.physics_family
+        if hasattr(kinematics, 'physics_family') and kinematics.physics_family != pf:
+            warnings.warn(
+                "Quad4({}): kinematics physics_family={} != element physics_family={}".format(
+                    tag, kinematics.physics_family.value, pf.value), stacklevel=2)
+        if hasattr(material, 'physics_family') and material.physics_family != pf:
+            warnings.warn(
+                "Quad4({}): material physics_family={} != element physics_family={}".format(
+                    tag, material.physics_family.value, pf.value), stacklevel=2)
         super().__init__(tag, nodes, material, kinematics, thickness)
 
     def _getGaussPoints(self):
-        return quad4_gauss_points()
+        return _quad4_gauss_points()
 
     def _getShapeDerivatives(self, xi, eta):
-        return quad4_shape_derivatives(xi, eta)
+        return _quad4_shape_derivatives(xi, eta)
+
+    # v2 element API hooks
+    def _get_shape_functions(self, xi):
+        return _quad4_shape_functions(*xi)
+
+    def _get_shape_derivatives(self, xi):
+        return _quad4_shape_derivatives(*xi)
 
     def __repr__(self):
         return "Quad4(ID={})".format(self._ID)

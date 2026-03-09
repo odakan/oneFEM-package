@@ -20,7 +20,7 @@ from .material.main import Material
 from .constraint.main import Constraint
 from ..output.recorder.main import Recorder
 from ..analysis.eigen.main import Eigen
-from .._systools.data import Vector, Matrix
+from .._systools.data import Vector
 import numpy as np
 
 class Domain(object):
@@ -49,10 +49,7 @@ class Domain(object):
         # Node lookup dict for O(1) access during assembly
         self.__node_map = {}  # {nodeID: node_object}
 
-        # Initialize global matrices and vectors
-        self._K = None   # Global tangent stiffness matrix
-        self._C = None   # Damping matrix
-        self._M = None   # Mass matrix
+        # Global state vectors (owned by Domain, written by Analysis)
         self._u = None   # Displacement vector
         self._v = None   # Velocity vector
         self._a = None   # Acceleration vector
@@ -66,6 +63,9 @@ class Domain(object):
         self.__eigenvalues = None   # numpy array of omega^2 values
         self.__eigenvectors = None  # numpy array (nFreeDOF x numModes)
         self.__eigenDOFs = None     # list of free DOF indices
+
+        # System of equations (set by Analysis for assembly/solve)
+        self._system = None
 
 
     # Property accessors
@@ -99,11 +99,21 @@ class Domain(object):
 
     @property
     def K(self):
-        return self._K
+        """Lazy accessor: returns assembled K from the system (requires Analysis setup)."""
+        if self._system is not None:
+            K_sp = self._system.getK()
+            if K_sp is not None:
+                return K_sp.toarray()
+        return None
 
-    @K.setter
-    def K(self, value):
-        self._K = value
+    @property
+    def M(self):
+        """Lazy accessor: returns assembled M from the system (requires Analysis setup)."""
+        if self._system is not None:
+            M_sp = self._system.getM()
+            if M_sp is not None:
+                return M_sp.toarray()
+        return None
 
     @property
     def F(self):
@@ -120,22 +130,6 @@ class Domain(object):
     @u.setter
     def u(self, value):
         self._u = value
-
-    @property
-    def M(self):
-        return self._M
-
-    @M.setter
-    def M(self, value):
-        self._M = value
-
-    @property
-    def C(self):
-        return self._C
-
-    @C.setter
-    def C(self, value):
-        self._C = value
 
     @property
     def v(self):
@@ -158,9 +152,19 @@ class Domain(object):
         self.__alphaM = alphaM
         self.__betaK = betaK
 
+    def getRayleighCoeffs(self):
+        return self.__alphaM, self.__betaK
 
-    def _domain(self):
-        """Number DOFs sequentially and initialize elements."""
+
+    def _domain(self, numberer=None):
+        """Number DOFs and initialize elements.
+
+        Parameters
+        ----------
+        numberer : Numberer, optional
+            If provided, the numberer assigns DOF numbers (e.g. RCM ordering).
+            If None, uses sequential numbering (default, backward compatible).
+        """
         self.__nNds = len(self.__nodes)
         if self.__nNds < 1:
             raise ValueError("Domain: No nodes in the domain!")
@@ -172,142 +176,22 @@ class Domain(object):
         # Build node lookup map
         self.__node_map = {node._ID: node for node in self.__nodes}
 
-        # Sequential DOF numbering
-        counter = 0
-        for node in self.__nodes:
-            nDOF = node.getNDOF()
-            dofs = list(range(counter, counter + nDOF))
-            node._setDOF(dofs)
-            counter += nDOF
-        self.__nDOF = counter
+        if numberer is not None and hasattr(numberer, 'number'):
+            # Numberer assigns DOF numbers (e.g. RCM)
+            self.__nDOF = numberer.number(self)
+        else:
+            # Sequential DOF numbering (default)
+            counter = 0
+            for node in self.__nodes:
+                nDOF = node.getNDOF()
+                dofs = list(range(counter, counter + nDOF))
+                node._setDOF(dofs)
+                counter += nDOF
+            self.__nDOF = counter
 
         # Call domain for all elements
         for element in self.__elements:
             element._domain()
-
-
-    def _assemble(self, time=0.0):
-        """Assemble global stiffness matrix, mass matrix, and force vector."""
-        n = self.__nDOF
-        self._K = Matrix(shape=[n, n])
-        self._F = Vector(shape=n)
-
-        # Preserve v and a across steps (only initialize if None or wrong size)
-        if self._u is None or len(self._u) != n:
-            self._u = Vector(shape=n)
-        else:
-            # Reset u for new solve (will be overwritten by algorithm)
-            self._u = Vector(shape=n)
-
-        # Check if any element has mass
-        has_mass = any(e.getMass() is not None for e in self.__elements)
-        if has_mass:
-            self._M = Matrix(shape=[n, n])
-
-        # Initialize v, a if needed (preserve across steps)
-        if self._v is None or len(self._v) != n:
-            self._v = Vector(shape=n)
-        if self._a is None or len(self._a) != n:
-            self._a = Vector(shape=n)
-
-        # Assemble K and M for each element
-        for element in self.__elements:
-            ke = element.getStiffness()
-            me = element.getMass()
-
-            # Get global DOF indices for this element
-            dofs = []
-            for node in element.getNodes():
-                node_dofs = node.getDOFs()
-                if hasattr(node_dofs, 'tolist'):
-                    dofs.extend(node_dofs.tolist())
-                elif hasattr(node_dofs, 'data'):
-                    dofs.extend(node_dofs.data.tolist())
-                else:
-                    dofs.extend(list(node_dofs))
-
-            # Scatter element stiffness into global K
-            for i_local, i_global in enumerate(dofs):
-                for j_local, j_global in enumerate(dofs):
-                    self._K[i_global, j_global] = self._K[i_global, j_global] + ke[i_local, j_local]
-
-            # Scatter element mass into global M
-            if me is not None:
-                for i_local, i_global in enumerate(dofs):
-                    for j_local, j_global in enumerate(dofs):
-                        self._M[i_global, j_global] = self._M[i_global, j_global] + me[i_local, j_local]
-
-        # Compute Rayleigh damping: C = alphaM * M + betaK * K
-        if has_mass and (self.__alphaM != 0.0 or self.__betaK != 0.0):
-            K_data = np.asarray(self._K)
-            M_data = np.asarray(self._M)
-            C_data = self.__alphaM * M_data + self.__betaK * K_data
-            self._C = Matrix(init=C_data)
-        elif has_mass:
-            self._C = Matrix(shape=[n, n])
-        else:
-            self._C = None
-
-        # Assemble F from patterns (nodal loads)
-        for pattern in self.__patterns:
-            nodal_loads = pattern.getNodalLoads(time)
-            for nodeID, forces in nodal_loads.items():
-                # Find the node by ID via dict lookup
-                node = self.__node_map.get(nodeID)
-                if node is None:
-                    continue
-                node_dofs = node.getDOFs()
-                if hasattr(node_dofs, 'tolist'):
-                    dof_list = node_dofs.tolist()
-                elif hasattr(node_dofs, 'data'):
-                    dof_list = node_dofs.data.tolist()
-                else:
-                    dof_list = list(node_dofs)
-                for k, dof_idx in enumerate(dof_list):
-                    if k < len(forces):
-                        self._F[dof_idx] = self._F[dof_idx] + forces[k]
-
-        # Apply UniformExcitation: F_eq = -M * r * a_g(t)
-        # r is the influence vector (1.0 at the excitation DOF for each node)
-        if has_mass:
-            for pattern in self.__patterns:
-                if isinstance(pattern, UniformExcitation):
-                    a_g = pattern.getAcceleration(time)
-                    if a_g != 0.0:
-                        direction = pattern.direction  # 1-based
-                        M_data = np.asarray(self._M)
-                        F_data = np.asarray(self._F)
-                        # Build influence vector r
-                        r = np.zeros(n)
-                        for node in self.__nodes:
-                            node_dofs = node.getDOFs()
-                            if hasattr(node_dofs, 'tolist'):
-                                dof_list = node_dofs.tolist()
-                            elif hasattr(node_dofs, 'data'):
-                                dof_list = node_dofs.data.tolist()
-                            else:
-                                dof_list = list(node_dofs)
-                            # direction is 1-based; DOF index within node
-                            if direction <= len(dof_list):
-                                r[dof_list[direction - 1]] = 1.0
-                        # F_eq = -M * r * a_g
-                        F_data -= a_g * M_data.dot(r)
-                        self._F = Vector(list(F_data))
-
-        # Apply imposed displacements from fixed nodes
-        for node in self.__nodes:
-            node_dofs = node.getDOFs()
-            if hasattr(node_dofs, 'tolist'):
-                dof_list = node_dofs.tolist()
-            elif hasattr(node_dofs, 'data'):
-                dof_list = node_dofs.data.tolist()
-            else:
-                dof_list = list(node_dofs)
-
-            fix = node._fix
-            for k, dof_idx in enumerate(dof_list):
-                if fix[k]:
-                    self._u[dof_idx] = 0.0  # imposed displacement = 0 for fixed DOFs
 
 
     def _commit(self, force, disp, vel=None, accel=None):
@@ -455,6 +339,8 @@ class Domain(object):
     def eigen(self, numModes, solver='genBandArpack'):
         """Solve the generalized eigenvalue problem K*phi = lambda*M*phi.
 
+        Uses SparseGeneral for assembly (same system as Analysis).
+
         Parameters
         ----------
         numModes : int
@@ -467,29 +353,51 @@ class Domain(object):
         eigenvalues : numpy array
             Array of omega^2 values for the requested modes.
         """
+        from ..analysis.system.sparse_general import SparseGeneral
+
         # 1. Number DOFs, init elements
         self._domain()
 
-        # 2. Assemble K and M
-        self._assemble(time=0.0)
+        # 2. Build DOF maps and create assembly system
+        node_dof_map = {}
+        for nd in self.__nodes:
+            dof_data = nd.getDOFs()
+            if hasattr(dof_data, 'tolist'):
+                node_dof_map[nd._ID] = np.array(dof_data.tolist(), dtype=np.int32)
+            else:
+                node_dof_map[nd._ID] = np.array(list(dof_data), dtype=np.int32)
 
-        if self._M is None:
+        elem_dof_map = {}
+        for elem in self.__elements:
+            edofs = []
+            for nd in elem.getNodes():
+                edofs.extend(node_dof_map[nd._ID].tolist())
+            elem_dof_map[elem._ID] = np.array(edofs, dtype=np.int32)
+
+        system = SparseGeneral()
+        system.setSize(self.__nDOF, elem_dof_map, self.__elements)
+        self._system = system
+
+        # 3. Assemble K and M into system
+        system.zeroA()
+        for elem in self.__elements:
+            system.addA(np.asarray(elem.getStiffness()), elem._ID)
+            me = elem.getMass()
+            if me is not None:
+                system.addM(np.asarray(me), elem._ID)
+
+        M_sp = system.getM()
+        if M_sp is None:
             raise ValueError("Domain.eigen() - No mass matrix assembled. "
                              "Elements must have mass (rho > 0) for eigen analysis.")
 
-        # 3. Identify free / fixed DOFs (same logic as Analysis._organize)
-        uu = []  # free DOFs
-        pp = []  # fixed DOFs
+        # 4. Identify free / fixed DOFs
+        uu = []
+        pp = []
         for node in self.__nodes:
             nDOF = node.getNDOF()
-            node_dofs = node.getDOFs()
             fix = node._fix
-            if hasattr(node_dofs, 'tolist'):
-                dof_list = node_dofs.tolist()
-            elif hasattr(node_dofs, 'data'):
-                dof_list = node_dofs.data.tolist()
-            else:
-                dof_list = list(node_dofs)
+            dof_list = node_dof_map[node._ID].tolist()
             for j in range(nDOF):
                 if fix[j]:
                     pp.append(dof_list[j])
@@ -503,23 +411,23 @@ class Domain(object):
             raise ValueError(
                 f"Domain.eigen() - requested {numModes} modes but only {len(uu)} free DOFs.")
 
-        # 4. Extract free-DOF submatrices
-        K_full = np.asarray(self._K)
-        M_full = np.asarray(self._M)
+        # 5. Extract free-DOF submatrices
+        K_full = system.getK().toarray()
+        M_full = M_sp.toarray()
         uu_idx = np.array(uu)
         K_uu = K_full[np.ix_(uu_idx, uu_idx)]
         M_uu = M_full[np.ix_(uu_idx, uu_idx)]
 
-        # 5. Solve
+        # 6. Solve
         solver_obj = Eigen(solver)
         eigenvalues, eigenvectors = solver_obj.solve(K_uu, M_uu, numModes)
 
-        # 6. Store results
+        # 7. Store results
         self.__eigenvalues = eigenvalues
         self.__eigenvectors = eigenvectors
         self.__eigenDOFs = uu
 
-        # 7. Trigger mode shape recorders
+        # 8. Trigger mode shape recorders
         self._record_eigen()
 
         return eigenvalues
@@ -544,7 +452,12 @@ class Domain(object):
         numModes = len(eigenvalues)
         nDOF_free = len(uu)
 
-        M_full = np.asarray(self._M)
+        if self._system is None:
+            raise ValueError("Domain.modalProperties() - No assembly system. Run eigen() first.")
+        M_sp = self._system.getM()
+        if M_sp is None:
+            raise ValueError("Domain.modalProperties() - No mass matrix in system.")
+        M_full = M_sp.toarray()
         M_uu = M_full[np.ix_(np.array(uu), np.array(uu))]
 
         # Total mass per translational direction

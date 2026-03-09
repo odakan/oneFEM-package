@@ -21,13 +21,16 @@ from oneFEM.model import Domain
 from oneFEM.model.node import Node22
 from oneFEM.model.element.continuum.quad4 import Quad4
 from oneFEM.model.material.nD.elastic_isotropic import ElasticIsotropic
-from oneFEM.model.element.kinematics.continuum.linear import LinearContinuumKinematics
-from oneFEM.model.element.kinematics.continuum.total_lagrangian import TotalLagrangianContinuumKinematics
-from oneFEM.model.element.kinematics.continuum.updated_lagrangian import UpdatedLagrangianContinuumKinematics
+from oneFEM.model.kinematics.continuum.cauchy.linear import LinearContinuumKinematics
+from oneFEM.model.kinematics.continuum.cauchy.total_lagrangian import TotalLagrangianContinuumKinematics
+from oneFEM.model.kinematics.continuum.cauchy.updated_lagrangian import UpdatedLagrangianContinuumKinematics
 from oneFEM.model.pattern import Plain as PlainPattern
 from oneFEM.model.tseries import Constant
 from oneFEM._systools.data import Vector, Matrix
 from oneFEM._systools.data.ctensor import CTensor
+from oneFEM.analysis.main import Analysis
+from oneFEM.analysis.algorithm.linear import Linear
+from oneFEM.analysis.integrator.static.load_control import LoadControl
 
 E_val = 1000.0
 nu_val = 0.3
@@ -56,7 +59,8 @@ def build_single_quad(kinematics):
     pat = PlainPattern(1, ts)
     model.add(pat)
 
-    model._domain()
+    analysis = Analysis(algorithm=Linear(), integrator=LoadControl(1))
+    analysis._analyze(model, nSteps=0, dt=0.0)
     return model, [nd1, nd2, nd3, nd4], elem
 
 

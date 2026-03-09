@@ -18,6 +18,15 @@ This is mandatory, not optional.** It contains:
 
 If you have not read it, stop and read it now.
 
+**Read `docs/oneFEM_v2_architecture.md` before any refactoring work.** It is the governing
+design document for the v2 architecture. It defines:
+- The four-pillar model: node, element, kinematics, material
+- `physics_family` string compatibility system
+- Full element API contract (get_B, get_H, get_F, get_dN_dX, etc.)
+- Branching rules (what you may and may NOT branch on)
+- Audit table of 16 current violations and 6-phase refactor plan
+- Self-contained element files (no shared `isoparametric.py`)
+
 ## Backend Strategy (Hardware Abstraction)
 
 oneFEM is **pure Python with swappable array backends**. All numerical computation uses a numpy-compatible API. The abstraction point is `_systools/backend.py` (planned) — one import swap targets different hardware:
@@ -75,7 +84,7 @@ cd src && python truss.py
 - `src/examples/quad4_patch_test.py` — MacNeal-Harder 4-element patch test (9 nodes, 1 irregular interior): 3 constant stress states × (GP stress + interior node solve), 6 tests (ALL PASS, err < 1e-15)
 - `src/examples/quad4_cooks_membrane.py` — Cook's membrane Quad4 convergence: 5 meshes (2x2→32x32), monotonic convergence + 16x16 v_tip > 23.0, 2 tests (ALL PASS)
 - `src/examples/corot_benchmarks.py` — Corotational beam benchmarks: Part A snap-through arch (P_cr within 0.1% of Crisfield ref), Part B Lee's frame qualitative (Newton convergence + nonlinear response), 5 tests (ALL PASS)
-- `src/examples/hex8_benchmarks.py` — Hex8 B-bar element: 3D patch test (6 states × bbar on/off, 12 tests), thick-walled cylinder Lamé (bbar vs std, 2 tests), cantilever 40×4×4 (1 test), Cook's 3D vs Quad4 (1 test), 16 tests (ALL PASS)
+- `src/examples/hex8_benchmarks.py` — Hex8 element: 3D patch test (6 states × bbar on/off, 12 tests), thick-walled cylinder Lamé (bbar vs std, 2 tests), cantilever 40×4×4 (1 test), Cook's 3D vs Quad4 (1 test), incompatible patch test (6 tests), locking comparison (3 tests), TL vs UL incompatible (4 tests), Corot incompatible (3 tests), 32 tests (ALL PASS)
 - `src/examples/corot_continuum_benchmarks.py` — CorotContinuumKinematics Quad4: Newton convergence, Corot==TL==UL small load, large deformation, patch test, 5 tests (ALL PASS)
 - `src/examples/quad4_benchmarks.py` — Consolidated Quad4 full kinematics validation suite, 8 benchmarks (ALL PASS):
   - B1: Patch test (Linear, GATE) — MacNeal-Harder 9-node 4-element, 3 load cases, err < 1e-15
@@ -119,7 +128,7 @@ Check it before starting any task. If you finish a WP, update this table.
 | `ZeroLength` | ✅ Exists | `model/element/zerolength/` | |
 | `ShellQ4` | ⚠️ Stub | `model/element/shell/` | Empty stub |
 | `Quad4` (continuum) | ✅ Working | `model/element/continuum/quad4.py` | Patch test 6/6 PASS, Cook's membrane convergence PASS |
-| `Hex8` (continuum, B-bar) | ✅ Working | `model/element/continuum/hex8.py` | B-bar default, 16 benchmarks PASS (patch, cylinder, cantilever, Cook's 3D) |
+| `Hex8` (continuum, B-bar) | ✅ Working | `model/element/continuum/hex8.py` | B-bar + incompatible modes, 32 benchmarks PASS (patch, cylinder, cantilever, Cook's 3D, locking, TL-UL, Corot) |
 | `Solid` (Tri, Brick) | ⚠️ Stub | `model/element/solid/` | Empty stubs |
 | `forceBeamColumn` (fiber) | 🔲 Planned | — | Needs FiberSection first |
 | `CrdTransf` (Linear2d) | ✅ Working | `model/element/coordTransformation/` | Benchmarked |
@@ -157,8 +166,9 @@ Check it before starting any task. If you finish a WP, update this table.
 | `CentralDifference` | ✅ Exists | `analysis/integrator/` | |
 | `HHT / GeneralizedAlpha` | 🔲 Planned | — | Numerical damping |
 | `ArcLength` | 🔲 Planned | — | Snap-through problems |
-| `FullGeneral` solver | ✅ Working | `analysis/system/` | scipy dense |
-| `UMFPACK` solver | ✅ Working | `analysis/system/` | Linux only |
+| `SparseGeneral` (LinearSOE) | ✅ Working | `analysis/system/sparse_general.py` | SparseAssembler + SpSolve, default SOE |
+| `UmfPackSOE` (LinearSOE) | ✅ Working | `analysis/system/umfpack.py` | SparseAssembler + UmfPackSolver, Linux only |
+| `FullGeneral` solver | ✅ Working | `analysis/system/full_general.py` | scipy dense, solve-only (legacy System) |
 | `CUSPARSESolver` | 🔲 WP13 | — | `cupyx.scipy.sparse.linalg` backend |
 | Parallel element assembly | 🔲 WP11 | — | `concurrent.futures.ThreadPoolExecutor` |
 | MPI domain decomp | 🔲 WP10 | — | `mpi4py` — distributed ranks |
@@ -240,7 +250,7 @@ src/oneFEM/
 │   ├── main.py         # Analysis — orchestrates solution pipeline
 │   ├── algorithm/      # Linear, Newton, Krylov-Newton
 │   ├── integrator/     # Static (LoadControl, DisplacementControl) / Dynamic (Newmark, CentralDifference)
-│   ├── system/         # Equation solvers (FullGeneral, UMFPACK)
+│   ├── system/         # LinearSOE (assembly+solve), solvers (SpSolve, UmfPack)
 │   ├── numberer/       # DOF numbering (Plain, ReverseCuthillMcKee)
 │   ├── constraints/    # Constraint handlers (Plain, Penalty)
 │   ├── eigen/          # Eigenvalue solvers (Eigen: fullGenLapack, genBandArpack)
@@ -267,7 +277,9 @@ src/oneFEM/
 
 **Core classes:**
 - **Domain** (`model/main.py`): Central container holding nodes, elements, patterns, constraints, recorders, and global K/F/u (Matrix/Vector objects). Maintains `__node_map` dict for O(1) node lookup. Key methods: `add()`, `remove()`, `_domain()`, `_assemble()`, `_commit()`, `_record(time)`, `getInternalForce()`, `getCommittedDisp()`, `eigen(numModes)`, `modalProperties()`, `getEigenvalue(mode)`, `getEigenvector(mode)`. Properties: `nodes`, `elements`, `patterns`, `K`, `F`, `u`, `nDOF`.
-- **Analysis** (`analysis/main.py`): Orchestrates solution via pluggable Strategy components: Algorithm, Integrator, System, Numberer, ConstraintHandler, Test.
+- **Analysis** (`analysis/main.py`): Orchestrates solution via pluggable Strategy components: Algorithm, Integrator, LinearSOE, Numberer, ConstraintHandler, Test.
+- **LinearSOE** (`analysis/system/linear_soe.py`): Base class for systems that own assembly (SparseAssembler) + solving (LinearSOESolver). Interface: `setSize`, `zeroA`, `addA`, `addM`, `addB`, `getK`, `getM`, `getB`, `getX`, `solve(A, b)`. Concrete: `SparseGeneral` (SpSolve), `UmfPackSOE` (UmfPackSolver). Legacy solve-only systems (`FullGeneral`, `ProfileSPD`) inherit from `System` base.
+- **LinearSOESolver** (`analysis/system/linear_soe.py`): Pluggable solver backend wired to a LinearSOE via `setLinearSOE(soe)`. Interface: `symbolic(K)`, `numeric(K)`, `solve(K, f)`. Concrete: `SpSolve` (stateless spsolve), `UmfPackSolver` (symbolic reuse, UMFPACK_ORDERING_NONE + STRATEGY_SYMMETRIC).
 - **Node** (`model/node/main.py`): Base class. Specializations named `Node{nDim}_{nDOF}` (e.g., `Node36` = 3D, 6-DOF). Maintains trial and committed states for displacement, velocity, acceleration, force.
 - **Element** (`model/element/main.py`): Abstract base. Subclasses must implement `_domain()`, `_commit()`, `_revert()`, `_update()`. Holds nodes, section, local k (Matrix) and f (Vector).
 - **Material** (`model/material/main.py`): Abstract base with `_setTrialStrain()`, `_commitState()`, `_revertToLastCommit()`. Uniaxial materials: `Elastic` (linear), `ElasticPerfectlyPlastic` (bilinear with zero post-yield hardening, tracks plastic strain).
@@ -278,6 +290,33 @@ src/oneFEM/
   - `ModeShapeRecorder(recID, domain, nodes, dofs, modes)` — captures eigenvector mode shapes after `eigen()`. Auto-triggered by `Domain._record_eigen()`. Data in `rec.data['mode_N']` = `{nodeID: [phi_vals]}`. Metadata: `eigenvalue_N`, `omega_N`, `freq_N`. `save(path)` writes formatted output. `getNodeModeShape(mode, nodeID)` accessor.
   - **Data format**: single node/element → `data[key] = [val_per_step, ...]`; multi-node/element → `data[key] = [{ID: val, ...}, ...]`
 - **Eigen** (`analysis/eigen/main.py`): `Eigen(solver).solve(K, M, numModes)` — solves K·φ = λ·M·φ. Backends: `'fullGenLapack'` (scipy dense eigh), `'genBandArpack'` (scipy sparse eigsh, shift-invert, falls back to dense). Returns sorted eigenvalues (ω²) and mass-normalized eigenvectors.
+
+### Continuum Element Enrichment API Contract
+
+Any continuum element implementing incompatible modes or other displacement enrichment must override the following five methods in the element class. The base class (`ContinuumElement`) provides default `None` returns so standard elements (Quad4, Tet4, etc.) require no changes.
+
+```
+get_H(xi, u_e)           — full enriched displacement gradient H = H_std + H_enrich
+get_F(xi, u_e)           — enriched deformation gradient F = I + H_enriched
+get_B_NL(xi, u_e)        — enriched nonlinear B matrix built from enriched F
+get_H_enrichment(xi)     — enrichment delta ONLY: returns H_enrich = get_H() - super().get_H()
+get_G(xi)                — incompatible mode strain matrix (6×nAlpha) for static condensation
+```
+
+**Consistency requirement**: `get_H_enrichment(xi)` must return exactly `get_H(xi, u_e) - super().get_H(xi, u_e)`. All five methods must be mutually consistent.
+
+**Which kinematics consume which method:**
+
+| Kinematics | Injection point | Reason |
+|---|---|---|
+| Linear | `get_G(xi)` via condensation loop | strain-level assembly |
+| TotalLagrangian | `get_H(xi, u_e)` | computes H_total directly from nodal positions |
+| UpdatedLagrangian | `get_H_enrichment(xi)` | H_total built incrementally via `F_incr @ F_commit`; enrichment added as delta |
+| CorotContinuum | `get_F(xi, u_e)` → `get_H()` | polar decomposition requires full enriched F |
+
+**Wilson-Taylor J₀ rule (ADR-009 amendment)**: J₀ and G matrices for incompatible mode enrichment are computed once from the original undeformed element geometry and **never refreshed**, regardless of kinematics formulation. This is distinct from `dN_dX` in the kinematics layer which follows the kinematics reference (UL advances at commit per Bathe FEP §6.2). J₀ is a Taylor et al. center-point patch-test correction — an element geometric property, not a kinematics reference quantity. Refreshing J₀ in UL produces non-monotonic TL-UL convergence and is wrong.
+
+**Reference implementations**: Hex8 — see `get_H_enrichment()`, `get_H()`, `get_F()`, `get_B_NL()`, `get_G()`. Mirror this pattern for Hex20, Tet10, or any future enriched element.
 
 ### Data Structures (`_systools/data/`)
 
@@ -339,6 +378,10 @@ The trial/committed state pattern at every level (Node, Material, Element, Domai
 - **Node subclasses must use single-underscore `_attr`** (not `__attr` name-mangling) for attributes accessed by the base class interface (`getNDOF()`, `getDOFs()`, `_fix`, etc.)
 - **nDMaterial and other Material subclasses** must call `super().__init__(mat_id)` to initialize the parent
 - **Rectangular section `_setTrialStrain`** must update `self._C` from material tangent (not just stress) for nonlinear materials
+- **Kinematics reference configuration rule (ADR-009)**: Two distinct categories of geometric descriptors, each with its own refresh rule:
+  - **Kinematics reference quantities** (dN/dX, X_ref): follow the kinematics formulation. Linear/TL/Corot: original undeformed, computed once at construction — never refreshed. UL: last committed state, refreshed at `commitState()` only (NOT during Newton iterations — Bathe FEP §6.2).
+  - **Wilson-Taylor enrichment quantities** (center-point J₀, G matrices, dM_dX): always original undeformed element geometry, **never refreshed**, all kinematics formulations. The Taylor et al. center-point correction is an element geometric property (locking artifact fix), not a kinematics reference quantity. Refreshing J₀ to committed config causes configuration-dependent errors in alpha that accumulate non-monotonically with load steps. Validated: original-config J₀ gives TL==UL to <0.01% with monotonic convergence under refinement; committed-config J₀ gave 11-20% non-monotonic divergence.
+  - UL gets enrichment via `element.get_H_enrichment(xi)` in its `update()` method (element API path). See `memory/kinematics_reference_rule.md`.
 
 ## Task Cookbook
 

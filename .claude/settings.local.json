@@ -3,7 +3,9 @@
     "allow": [
       "WebSearch",
       "Bash(python:*)",
-      "Bash(xargs grep:*)"
+      "Bash(xargs grep:*)",
+      "Bash(ls -la /c/Users/Deniz/GitHub/oneFEM-package/src/*.py)",
+      "Bash(wc:*)"
     ]
   }
 }

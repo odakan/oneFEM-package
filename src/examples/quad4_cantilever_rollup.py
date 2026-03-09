@@ -23,8 +23,8 @@ from oneFEM.model import Domain
 from oneFEM.model.node import Node22
 from oneFEM.model.element.continuum.quad4 import Quad4
 from oneFEM.model.material.nD.elastic_isotropic import ElasticIsotropic
-from oneFEM.model.element.kinematics.continuum.total_lagrangian import TotalLagrangianContinuumKinematics
-from oneFEM.model.element.kinematics.continuum.updated_lagrangian import UpdatedLagrangianContinuumKinematics
+from oneFEM.model.kinematics.continuum.cauchy.total_lagrangian import TotalLagrangianContinuumKinematics
+from oneFEM.model.kinematics.continuum.cauchy.updated_lagrangian import UpdatedLagrangianContinuumKinematics
 from oneFEM.model.pattern import Plain as PlainPattern
 from oneFEM.model.tseries import Linear as LinearTS
 from oneFEM.analysis import Analysis

@@ -6,7 +6,6 @@ from . import beam
 from . import shell
 from . import zerolength
 from . import truss
-from . import kinematics
 from . import continuum
 
 # delete modules imported from .py directories
@@ -19,6 +18,5 @@ __all__ = [
     "shell",
     "zerolength",
     "truss",
-    "kinematics",
     "continuum"
 ]

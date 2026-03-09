@@ -24,7 +24,7 @@ import numpy as np
 from oneFEM.model import Domain
 # modeling tools
 from oneFEM.model.element.beam import ElasticBeamColumn2d, ElasticBeamColumn3d
-from oneFEM.model.element.kinematics.crdTransf import LinearCrdTransf2d, LinearCrdTransf3d
+from oneFEM.model.kinematics.beam import LinearCrdTransf2d, LinearCrdTransf3d
 from oneFEM.model.node import Node23, Node36
 from oneFEM.model.tseries import Constant
 from oneFEM.model.pattern import Plain as PlainPattern

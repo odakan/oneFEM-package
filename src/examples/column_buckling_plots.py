@@ -138,7 +138,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from oneFEM.model import Domain
 from oneFEM.model.element.beam import ElasticBeamColumn2d, ElasticBeamColumn3d
-from oneFEM.model.element.kinematics.crdTransf import (
+from oneFEM.model.kinematics.beam import (
     LinearCrdTransf2d, PDeltaCrdTransf2d, CorotCrdTransf2d,
     PDeltaCrdTransf3d, CorotCrdTransf3d
 )
@@ -452,7 +452,7 @@ def eigenvalue_curve(TransfClass_2d, nElem, incr, nSteps, dim='2d',
                   integrator=integ, system=FullGeneral(1), test=ctest)
 
     # Initialize DOF numbering and partition into free (uu) / fixed (pp)
-    model._domain(); an._organize(model)
+    an._analyze(model, nSteps=0, dt=0.0)
     uu_idx = np.array(an.uu, dtype=int)  # free DOF indices
 
     # Get the base node's global DOF indices (for extracting reactions)
@@ -467,12 +467,12 @@ def eigenvalue_curve(TransfClass_2d, nElem, incr, nSteps, dim='2d',
     P_arr, eig_arr = [], []
     for step in range(nSteps):
         try:
-            # 1. Assemble tangent stiffness K and external force F
-            model._assemble(time=an._time + 1.0)
+            # 1. Assemble external force F
+            an._assembleF(model, time=an._time + 1.0)
             # 2. Apply displacement increment at controlled DOF
             integ.newStep(model, 1.0, an._time)
             # 3. Newton-Raphson iteration to equilibrium
-            alg.solve(model, an.uu, an.pp, integ, FullGeneral(1), ctest)
+            alg.solve(model, an.uu, an.pp, integ, an._assembly_system, ctest)
             # 4. Commit converged state
             integ.commit(model)
             an._time += 1.0
@@ -483,8 +483,8 @@ def eigenvalue_curve(TransfClass_2d, nElem, incr, nSteps, dim='2d',
             P_arr.append(abs(F_int[bd[1]]))
 
             # Reassemble to get the tangent stiffness at the converged state
-            model._assemble(time=an._time)
-            K = np.asarray(model.K)
+            integ._assembleK(model)
+            K = an._assembly_system.getK().toarray()
             # Extract the free-DOF partition K_uu
             K_uu = K[np.ix_(uu_idx, uu_idx)]
             # Compute all eigenvalues (symmetric matrix → eigvalsh)
@@ -622,7 +622,7 @@ def pushdown_2d(TransfClass, nElem, incr, nSteps, F_perturb=0.01):
     an = Analysis(1, algorithm=alg, constraints=PlainConstraints(1),
                   integrator=integ, system=FullGeneral(1), test=ctest)
 
-    model._domain(); an._organize(model)
+    an._analyze(model, nSteps=0, dt=0.0)
 
     # Get base node global DOF indices for extracting axial reaction
     base_dofs = nodes[0].getDOFs()
@@ -636,9 +636,9 @@ def pushdown_2d(TransfClass, nElem, incr, nSteps, F_perturb=0.01):
     P_arr, dlat_arr, dax_arr = [], [], []
     for step in range(nSteps):
         try:
-            model._assemble(time=an._time + 1.0)
+            an._assembleF(model, time=an._time + 1.0)
             integ.newStep(model, 1.0, an._time)
-            alg.solve(model, an.uu, an.pp, integ, FullGeneral(1), ctest)
+            alg.solve(model, an.uu, an.pp, integ, an._assembly_system, ctest)
             integ.commit(model)
             an._time += 1.0
 
@@ -712,7 +712,7 @@ def pushdown_3d(TransfClass, nElem, incr, nSteps, vecxz, F_perturb=0.01):
     an = Analysis(1, algorithm=alg, constraints=PlainConstraints(1),
                   integrator=integ, system=FullGeneral(1), test=ctest)
 
-    model._domain(); an._organize(model)
+    an._analyze(model, nSteps=0, dt=0.0)
     base_dofs = nodes[0].getDOFs()
     if hasattr(base_dofs, 'tolist'):
         bd = base_dofs.tolist()
@@ -724,9 +724,9 @@ def pushdown_3d(TransfClass, nElem, incr, nSteps, vecxz, F_perturb=0.01):
     P_arr, dlat_arr, dax_arr = [], [], []
     for step in range(nSteps):
         try:
-            model._assemble(time=an._time + 1.0)
+            an._assembleF(model, time=an._time + 1.0)
             integ.newStep(model, 1.0, an._time)
-            alg.solve(model, an.uu, an.pp, integ, FullGeneral(1), ctest)
+            alg.solve(model, an.uu, an.pp, integ, an._assembly_system, ctest)
             integ.commit(model)
             an._time += 1.0
 

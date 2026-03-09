@@ -6,6 +6,9 @@ It documents what exists, what the conventions are, where things go, and
 what the strategic design targets are.
 
 Cross-reference with `CLAUDE.md` for build/install and known pitfalls.
+Cross-reference with `docs/oneFEM_v2_architecture.md` for the v2 decoupling
+architecture (element/kinematics/material independence, physics families,
+element API contract, zero-change guarantees).
 
 ---
 
@@ -107,8 +110,10 @@ PyTorch.
 ```
 Circle A — Foundation (existing + near-term):
   Working Python FEM → validated static + dynamic + eigen  ✅ done
+  Continuum elements (Quad4 + Hex8, B-bar) + kinematics   ✅ done (Linear/TL/UL/Corot)
+  ElasticBeamColumn2d/3d with CrdTransf (Linear/PDelta/Corot) ✅ done
+  v2 architecture: element/kinematics/material decoupling  ⚠️ designed, refactor pending
   Steel01, Concrete01, Hardening materials
-  ElasticBeamColumn with CrdTransf
   HDF5 checkpoint/restart (WP8-9)
 
 Circle B — Novel Capabilities (medium-term):
@@ -236,16 +241,31 @@ src/oneFEM/
 │   │   ├── main.py              # Element abstract base
 │   │   ├── section/main.py      # Section (holds material, computes EA/EI)
 │   │   ├── truss/               # Truss element
-│   │   ├── beam/                # Beam-column element
-│   │   ├── shell/               # Shell element
-│   │   ├── solid/               # Solid element
+│   │   ├── beam/                # Beam-column element (ElasticBeamColumn2d/3d)
+│   │   ├── continuum/           # Continuum elements (Quad4, Hex8)
+│   │   │   ├── base.py          # ContinuumElement — owns GP loop + kinematics
+│   │   │   ├── quad4.py         # 4-node bilinear quad (2D)
+│   │   │   ├── hex8.py          # 8-node trilinear hex (3D, B-bar optional)
+│   │   │   └── isoparametric.py # Shape functions, Jacobian utilities
+│   │   ├── kinematics/          # Geometric nonlinearity strategies ★★
+│   │   │   ├── base.py          # Kinematics base
+│   │   │   └── continuum/       # Continuum kinematics
+│   │   │       ├── base.py      # ContinuumKinematics base (gp-indexed)
+│   │   │       ├── linear.py    # Small strain (B constant per GP, B-bar)
+│   │   │       ├── nonlinear_base.py # Shared: H, F, E, B_NL, K_geo
+│   │   │       ├── total_lagrangian.py  # TL: reference=initial config
+│   │   │       ├── updated_lagrangian.py # UL: reference=last committed
+│   │   │       └── corot.py     # EICR corotational (polar decomp)
+│   │   ├── coordTransformation/ # Beam coord transforms (Linear/PDelta/Corot 2d/3d)
+│   │   ├── shell/               # Shell element (stub)
+│   │   ├── solid/               # Solid element (stub)
 │   │   └── zerolength/          # ZeroLength element
 │   ├── material/
 │   │   ├── main.py              # Material abstract base
 │   │   ├── uniaxial/            # Elastic, ElasticPerfectlyPlastic, ...
-│   │   └── nD/                  # nD materials
+│   │   └── nD/                  # nDMaterial (ElasticIsotropic: PlaneStress/Strain/3D)
 │   ├── pattern/                 # Load patterns (Plain + time series)
-│   ├── tseries/                 # TimeSeries (Constant, Linear, Path)
+│   ├── tseries/                 # TimeSeries (Constant, Linear, Path, Trig)
 │   └── constraint/              # Boundary constraints
 │
 ├── analysis/                    # Solver pipeline
@@ -267,10 +287,42 @@ src/oneFEM/
 ```
 
 ★ = most important files; start here when understanding the system.
+★★ = v2 architecture target: kinematics will move to `model/kinematics/`
+     as a sibling of `model/element/`. See `docs/oneFEM_v2_architecture.md`.
 
 ---
 
-## 3. The Three-Object Pipeline
+## 3. The Four-Pillar Model
+
+oneFEM is structured around four independent, explicitly chosen pillars:
+
+```
+node          → pure geometric/DOF vessel
+element       → geometry, interpolation, physics family declaration
+kinematics    → formulation choice within a physics family
+material      → constitutive response within a physics family
+```
+
+The user makes four explicit choices at model-building time:
+
+```python
+node = Node33(1, coord=[0, 0, 0])
+mat  = ElasticIsotropic(1, E=1e7, nu=0.3, type='3D')
+kin  = TotalLagrangianContinuumKinematics()
+elem = Hex8(1, nodes, mat, kinematics=kin)
+```
+
+The framework validates compatibility at construction time. Nothing is inferred,
+nothing is magic, nothing fails silently inside a Newton loop.
+
+**Full architectural spec:** see `docs/oneFEM_v2_architecture.md` for:
+- Physics family declarations and compatibility checking
+- Element API contract (all methods kinematics may call)
+- Branching rules (what you may and may not branch on)
+- Zero-change guarantee table
+- Sequenced refactor plan from current to v2
+
+### Top-Level Pipeline
 
 Everything flows through three top-level objects:
 
@@ -771,6 +823,69 @@ The element calls `transf.getBasicTrialDisp()` in `_update()` and
 
 ---
 
+## 6b. Kinematics (`model/element/kinematics/`)
+
+### Design Principle
+
+Kinematics is a first-class concept, equal peer to element and material. It
+owns the formulation — which strain measure, which stress measure, how K_mat
+and K_geo are assembled. It uses the element API exclusively (v2 target —
+see `docs/oneFEM_v2_architecture.md` for the full API contract and refactor plan).
+
+**Current location:** `model/element/kinematics/continuum/`
+**v2 target location:** `model/kinematics/continuum/cauchy/` (sibling of element)
+
+### Continuum Kinematics Hierarchy
+
+```
+Kinematics (base — model/element/kinematics/base.py)
+  └── ContinuumKinematics (base — kinematics/continuum/base.py)
+        ├── LinearContinuumKinematics     — small strain, constant B per GP
+        │     └── B-bar (Hughes 1980) for volumetric locking (bbar=True, 3D)
+        ├── _NonlinearContinuumBase       — shared: H, F, E=0.5(F^T F-I), B_NL, K_sigma
+        │     ├── TotalLagrangianContinuumKinematics  — reference = initial config
+        │     └── UpdatedLagrangianContinuumKinematics — reference = last committed config
+        └── CorotContinuumKinematics      — EICR polar decomp (Felippa/Petracca)
+```
+
+### Option B Architecture: Single Object, GP-Indexed
+
+One kinematics instance per element. Methods take a GP index:
+
+```python
+kin.initialize(nGP, nDim, nNodes, dN_dX_list, **kwargs)   # called once in _domain()
+kin.update(gp, u_e)                                         # called per GP per iteration
+kin.applyCorotFrame(u_e)                                    # no-op except Corot
+kin.getStrain(gp)           -> CTensor (2nd order, COV)
+kin.getBMatrix(gp)          -> Matrix (nVoigt x nDOF)
+kin.getF(gp)                -> Matrix (nDim x nDim) or None
+kin.getGeometricStiffness(gp, stress) -> Matrix (nDOF x nDOF)
+kin.transformToGlobal(K_mat, f)       -> (K_mat, f)         # no-op except Corot
+kin.commitState(**kwargs)
+kin.revertToLastCommit()
+kin.copy()                  -> deep copy
+```
+
+### Strain Measures by Formulation
+
+| Formulation | Strain | Stress | Reference config | State to commit |
+|---|---|---|---|---|
+| Linear | eps = sym(grad u) | Cauchy sigma | N/A | None |
+| TL | E = 0.5(F^T F - I) | 2nd Piola-Kirchhoff S | Initial (fixed) | None |
+| UL | E_total via F_total | 2nd Piola-Kirchhoff S | Last committed | dN_dX, X_ref, F_commit |
+| Corot | eps_local = B_local @ u_local | Cauchy sigma (corotated) | Corotated frame | R (rotation) |
+
+### Key Implementation Details
+
+- **TL == UL to machine precision** (validated at 4.44e-15). UL recovers
+  F_total = F_incr @ F_commit and computes E_total from original reference.
+- **B-bar** (linear only): mean dilatation method, replaces volumetric part
+  of B with element average. Eliminates volumetric locking for near-incompressible.
+- **Corot EICR**: 2D uses Petracca's atan2 formula (exact). 3D uses SVD of mean F.
+  G=0 exactly for polar-decomp alignment, so tangent = T^T K_mat T + K_sigma.
+
+---
+
 ## 7. Material (`model/material/main.py`)
 
 ### Abstract Interface
@@ -1189,15 +1304,28 @@ raise TypeError("oneFEM.Domain.add() - expected Element, got str")
 
 ### New Element
 
+**For continuum (solid) elements** — inherit from `ContinuumElement`:
+- [ ] `model/element/continuum/{name}.py` (e.g., `tet4.py`, `quad8.py`)
+- [ ] Override `_getGaussPoints()` and `_getShapeDerivatives()`
+- [ ] Accept `kinematics` parameter (defaults to `LinearContinuumKinematics()`)
+- [ ] All existing kinematics (Linear/TL/UL/Corot) work automatically
+- [ ] v2 target: declare `physics_family = "continuum/cauchy"` and validate at construction
+- [ ] Benchmark script validates against analytical or published solution
+
+**For beam/frame elements** — inherit from `Element`:
+- [ ] Accept `CrdTransf` as constructor argument (required)
+- [ ] Use `transf.getBasicTrialDisp()` in `_update()`
+- [ ] Use `transf.getGlobalStiffMatrix()` / `getGlobalResistingForce()` in stiffness/force
+
+**For all elements:**
 - [ ] `model/element/{type}/main.py`
-- [ ] Inherit from `Element`
+- [ ] Inherit from `Element` (or `ContinuumElement` for solids)
 - [ ] Implement `_domain()`, `_update()`, `_commit()`, `_revert()`, `revertToStart()`
 - [ ] Implement `getTangentStiff()`, `getInitialStiff()`, `getResistingForce()`
 - [ ] Implement `getMass()` — return zero matrix if element has no mass
 - [ ] Implement `getDamp()` — default Rayleigh is fine initially
 - [ ] Implement `zeroLoad()`, `addLoad()` — required for elemental loads
 - [ ] Implement `getResistingForceIncInertia()` — for transient analysis
-- [ ] For beam elements: accept `CrdTransf` as constructor argument
 - [ ] Do NOT call `super()._commit()` or `super()._update()`
 - [ ] `_attr` (single underscore) for all instance variables
 - [ ] Local stiffness `k` as `Matrix`, local force `f` as `Vector`
@@ -1251,10 +1379,22 @@ Run all from `src/`:
 
 | Script | What it tests | Pass criterion |
 |---|---|---|
-| `src/truss.py` | 3D triangle truss static | Analytical direct stiffness |
-| `src/dynamic_truss.py` | SDOF Newmark vs closed-form | rel error < 1e-4, 3 configs |
-| `src/eigen_truss.py` | Eigenvalue / modal analysis | rel error < 1e-10, 4 scenarios |
-| `src/epp_truss.py` | Nonlinear Newton + EPP material | 4 sub-tests incl. regression |
+| `src/truss.py` | 3D triangle truss static | Analytical direct stiffness (ALL PASS) |
+| `src/dynamic_truss.py` | SDOF Newmark vs closed-form | rel error < 1e-4, 3 solver configs (ALL PASS) |
+| `src/eigen_truss.py` | Eigenvalue / modal analysis | rel error < 1e-10, 4 scenarios (ALL PASS) |
+| `src/epp_truss.py` | Nonlinear Newton + EPP material | 4 sub-tests incl. regression (ALL PASS) |
+| `src/dynamic_truss_eq.py` | Earthquake elastic Newmark+Linear | SDOF under ground motion (ALL PASS) |
+| `src/epp_truss_eq.py` | Earthquake EPP Newmark+Newton+line search | Nonlinear dynamic (ALL PASS, tol=5%) |
+| `src/cd_truss.py` | Explicit CentralDifference+Linear | vs analytical CD (ALL PASS, ~6e-14) |
+| `src/examples/beam.py` | ElasticBeamColumn2d/3d + CrdTransf | 10 tests (ALL PASS, err < 1e-10) |
+| `src/examples/column_buckling.py` | PDelta/Corot CrdTransf + DispControl | 8 tests, P_cr err < 3% (ALL PASS) |
+| `src/examples/quad4_patch_test.py` | MacNeal-Harder 4-elem patch test | 6 tests, err < 1e-15 (ALL PASS) |
+| `src/examples/quad4_cooks_membrane.py` | Cook's membrane Quad4 convergence | 2 tests (ALL PASS) |
+| `src/examples/corot_benchmarks.py` | Corot beam snap-through arch + Lee's frame | 5 tests (ALL PASS) |
+| `src/examples/hex8_benchmarks.py` | Hex8 B-bar: patch, cylinder, cantilever, Cook's 3D | 16 tests (ALL PASS) |
+| `src/examples/quad4_benchmarks.py` | Unified Quad4 suite: 8 benchmarks (Linear/TL/UL/Corot) | 8 benchmarks (ALL PASS) |
+| `src/examples/corot_continuum_benchmarks.py` | CorotContinuumKinematics Quad4 | 5 tests (ALL PASS) |
+| `src/examples/hex8_curved_cantilever.py` | Bathe & Bolourchi curved cantilever (Hex8) | Formulation comparison + mesh refinement |
 
 **When adding a new component, add a benchmark script** with a quantified
 pass criterion (e.g., `rel error < 1e-6` vs. analytical or published reference).
@@ -1316,9 +1456,12 @@ Full cross-reference for when reading OpenSees source to understand oneFEM behav
 | `Node` | `Node` + `Node{nDim}_{nDOF}` | ✅ Exists | Same specialization pattern |
 | `Element` | `Element` (model/element/main.py) | ✅ Exists | Same interface |
 | `UniaxialMaterial` | Material base + uniaxial/ | ✅ Exists | Same trial/commit |
-| `NDMaterial` | material/nD/ | ✅ Exists | Same interface |
+| `NDMaterial` | material/nD/ | ✅ Exists | ElasticIsotropic (PlaneStress/Strain/3D) |
 | `SectionForceDeformation` | Section (element/section/) | ⚠️ Partial | Rectangular only; FiberSection future |
-| `CrdTransf` | (future) | 🔲 Planned | Required for beam/frame elements |
+| `CrdTransf` | coordTransformation/ | ✅ Exists | Linear/PDelta/Corot 2d/3d, all benchmarked |
+| `ContinuumKinematics` | element/kinematics/continuum/ | ✅ Exists | Linear, TL, UL, Corot — all benchmarked |
+| `Quad4` | element/continuum/quad4.py | ✅ Exists | Patch test + Cook's + nonlinear (TL/UL) |
+| `Hex8` (B-bar) | element/continuum/hex8.py | ✅ Exists | 16 benchmarks, B-bar default |
 | `LoadPattern + TimeSeries` | pattern/ + tseries/ | ✅ Exists | Same pattern |
 | `SP_Constraint` | model/constraint/ | ✅ Exists | Single-point BCs |
 | `MP_Constraint` | (future) | 🔲 Planned | Multi-point constraints |
@@ -1351,47 +1494,60 @@ Full cross-reference for when reading OpenSees source to understand oneFEM behav
 
 ---
 
-## 18. Strategic Protocol Layer (Future Direction)
+## 18. v2 Architecture — Decoupling Roadmap
 
-The current codebase uses implicit duck-typing (if it has `_setTrialStrain`,
-it's a material). As the codebase grows toward WP19 and FE², formalizing
-this with `typing.Protocol` will prevent silent interface mismatches.
+The v2 architecture establishes full decoupling between elements, kinematics,
+and materials. The governing document is `docs/oneFEM_v2_architecture.md`.
 
-**Proposed future addition** (do not implement without a team decision):
+### Core Invariants (v2)
+
+1. **Element, kinematics, and material are independent pillars.** Adding a new
+   element requires zero changes to any kinematics file. Adding new kinematics
+   requires zero changes to any element file.
+
+2. **`physics_family` string** is the compatibility key. Element, kinematics, and
+   material must match (e.g., `"continuum/cauchy"`). Checked at construction time.
+
+3. **Element API** — kinematics calls only public methods (`get_B(gp)`,
+   `get_H(gp)`, `get_F(gp)`, `get_dN_dX(gp)`, etc.). Kinematics never stores
+   element geometry data.
+
+4. **`element.get_H(gp)` is the enrichment injection point.** When
+   `incompatible=True`, the element includes alpha contributions in H.
+   Kinematics never knows about enrichment — all formulations benefit automatically.
+
+5. **`kinematics/` becomes a sibling of `element/`** under `model/`, organized
+   by physics family (`model/kinematics/continuum/cauchy/`).
+
+### Refactor Phases
+
+| Phase | What changes | Files touched |
+|---|---|---|
+| 0 | Add element API methods | `element/continuum/base.py` only |
+| 1 | Move `kinematics/` to sibling directory | Directory move + imports |
+| 2 | Add `physics_family` + compatibility checks | All element/kin/mat `__init__` |
+| 3 | Kinematics uses element API (no stored geometry) | All 6 kin files + element base |
+| 4 | Kinematics owns K/f integration loop | All 6 kin files + element base |
+| 5 | Enrichment via `get_G(gp)` / `get_nAlpha()` | Enriched element files only |
+
+Each phase gate: all existing benchmarks pass before next phase begins.
+
+### Protocol Layer (future, post-v2)
+
+After v2 decoupling is complete, `typing.Protocol` can formalize the interfaces
+for WP19 (neural surrogate injection) and FE² validation:
 
 ```python
-# model/protocols.py  (new file — does not replace existing classes)
-from typing import Protocol, runtime_checkable
-
 @runtime_checkable
-class UniaxialMaterial(Protocol):
-    def _setTrialStrain(self, strain, strain_rate=0.0): ...
-    def _commitState(self): ...
-    def _revertToLastCommit(self): ...
-    def revertToStart(self): ...
-    def getStrain(self): ...          # current trial strain
-    def getStress(self): ...
-    def getTangent(self): ...
-    def getInitialTangent(self): ...
-    def getCopy(self): ...            # deep clone — required for FiberSection
-
-@runtime_checkable
-class FEMElement(Protocol):
-    def _domain(self): ...
-    def _update(self): ...
-    def _commit(self): ...
-    def _revert(self): ...
-    def revertToStart(self): ...
-    def getTangentStiff(self): ...
-    def getInitialStiff(self): ...
-    def getResistingForce(self): ...
-    def getMass(self): ...
-    def zeroLoad(self): ...
+class CauchyContinuumElementAPI(Protocol):
+    def get_B(self, gp): ...
+    def get_H(self, gp): ...
+    def get_F(self, gp): ...
+    def get_dN_dX(self, gp): ...
+    def get_stress(self, gp): ...
+    def get_material(self, gp): ...
+    ...
 ```
 
-`@runtime_checkable` means `isinstance(obj, UniaxialMaterial)` works as
-a validation check without any changes to existing classes. `Elastic` and
-`ElasticPerfectlyPlastic` satisfy this protocol today without modification.
-Add this file when implementing WP19 to validate the neural surrogate at
-injection time.
+Do not implement the Protocol layer until v2 refactor is complete.
 

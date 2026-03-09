@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.linalg import solve_banded
-from .main import System
+from .linear_soe import System
 
 class ProfileSPD(System):
     def __init__(self, sID=-1):

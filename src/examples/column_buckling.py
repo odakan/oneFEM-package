@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from oneFEM.model import Domain
 from oneFEM.model.element.beam import ElasticBeamColumn2d, ElasticBeamColumn3d
-from oneFEM.model.element.kinematics.crdTransf import (
+from oneFEM.model.kinematics.beam import (
     PDeltaCrdTransf2d, CorotCrdTransf2d,
     PDeltaCrdTransf3d, CorotCrdTransf3d
 )
@@ -307,15 +307,14 @@ def _run_pcr_2d(TransfClass, nElem, incr, nSteps_max, x_offset=0.0):
     P_cr_detected = 0.0
     prev_min_eig = None
 
-    model._domain()
-    analysis._organize(model)
+    analysis._analyze(model, nSteps=0, dt=0.0)
 
     uu_idx = np.array(analysis.uu, dtype=int)
 
     for step in range(nSteps_max):
         try:
             assembly_time = analysis._time + 1.0
-            model._assemble(time=assembly_time)
+            analysis._assembleF(model, time=assembly_time)
             integ.newStep(model, 1.0, analysis._time)
             alg.solve(model, analysis.uu, analysis.pp, integ, syst, ctest)
             integ.commit(model)
@@ -333,10 +332,9 @@ def _run_pcr_2d(TransfClass, nElem, incr, nSteps_max, x_offset=0.0):
             P_current = abs(F_int[base_dof_list[1]])
 
             # Check tangent stiffness eigenvalue
-            # Reassemble with current state to get K with geometric stiffness
-            model._assemble(time=analysis._time)
-            model.u = integ._U  # restore displacement
-            K = np.asarray(model.K)
+            # Reassemble K at current state to get geometric stiffness
+            integ._assembleK(model)
+            K = analysis._assembly_system.getK().toarray()
             K_uu = K[np.ix_(uu_idx, uu_idx)]
             eigs = np.linalg.eigvalsh(K_uu)
             min_eig = np.min(eigs)
@@ -556,15 +554,14 @@ def _run_pcr_3d(TransfClass, nElem, incr, nSteps_max):
     P_cr_detected = 0.0
     prev_min_eig = None
 
-    model._domain()
-    analysis._organize(model)
+    analysis._analyze(model, nSteps=0, dt=0.0)
 
     uu_idx = np.array(analysis.uu, dtype=int)
 
     for step in range(nSteps_max):
         try:
             assembly_time = analysis._time + 1.0
-            model._assemble(time=assembly_time)
+            analysis._assembleF(model, time=assembly_time)
             integ.newStep(model, 1.0, analysis._time)
             alg.solve(model, analysis.uu, analysis.pp, integ, syst, ctest)
             integ.commit(model)
@@ -581,9 +578,9 @@ def _run_pcr_3d(TransfClass, nElem, incr, nSteps_max):
             P_current = abs(F_int[base_dof_list[1]])
 
             # Check tangent stiffness eigenvalue
-            model._assemble(time=analysis._time)
-            model.u = integ._U
-            K = np.asarray(model.K)
+            # Reassemble K at current state to get geometric stiffness
+            integ._assembleK(model)
+            K = analysis._assembly_system.getK().toarray()
             K_uu = K[np.ix_(uu_idx, uu_idx)]
             eigs = np.linalg.eigvalsh(K_uu)
             min_eig = np.min(eigs)

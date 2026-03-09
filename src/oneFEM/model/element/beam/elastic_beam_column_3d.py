@@ -30,7 +30,7 @@
 
 from ..main import Element
 from ...node.main import Node
-from ..kinematics.crdTransf.base import CrdTransf
+from ...kinematics.beam.base import CrdTransf
 from ...._systools.data import Vector, Matrix
 from ...._systools.math_tools import _is_close
 import numpy as np

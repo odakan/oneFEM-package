@@ -29,7 +29,7 @@ import numpy as np
 from oneFEM.model import Domain
 from oneFEM.model.node import Node23
 from oneFEM.model.element.beam import ElasticBeamColumn2d
-from oneFEM.model.element.kinematics.crdTransf import CorotCrdTransf2d
+from oneFEM.model.kinematics.beam import CorotCrdTransf2d
 from oneFEM.model.tseries import Linear as LinearTS
 from oneFEM.model.pattern import Plain as PlainPattern
 from oneFEM.analysis import Analysis
@@ -138,8 +138,7 @@ def test_snap_through():
     analysis = Analysis(1, algorithm=alg, constraints=const,
                         integrator=integ, system=syst, test=ctest)
 
-    model._domain()
-    analysis._organize(model)
+    analysis._analyze(model, nSteps=0, dt=0.0)
 
     # Get apex global DOF for reaction extraction
     apex_dofs = apex_node.getDOFs()
@@ -159,7 +158,7 @@ def test_snap_through():
     for step in range(nSteps_max):
         try:
             assembly_time = analysis._time + 1.0
-            model._assemble(time=assembly_time)
+            analysis._assembleF(model, time=assembly_time)
             integ.newStep(model, 1.0, analysis._time)
             alg.solve(model, analysis.uu, analysis.pp, integ, syst, ctest)
             integ.commit(model)

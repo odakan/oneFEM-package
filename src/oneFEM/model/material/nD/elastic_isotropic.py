@@ -38,6 +38,7 @@
 #                               [0,    0,    0,    0,          0,          (1-2nu)/2 ]]
 
 from .main import nDMaterial
+from ...physics_family import PhysicsFamily
 from ...._systools.data.ctensor import CTensor
 
 
@@ -49,6 +50,8 @@ class ElasticIsotropic(nDMaterial):
     :param nu: Poisson's ratio
     :param type: 'PlaneStress', 'PlaneStrain', or '3D'
     """
+
+    physics_family = PhysicsFamily.CONTINUUM_CAUCHY
 
     def __init__(self, mat_id, E, nu, type='PlaneStress'):
         super().__init__(mat_id)

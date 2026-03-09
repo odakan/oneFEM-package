@@ -33,7 +33,7 @@ from oneFEM.analysis import Analysis
 from oneFEM.analysis.algorithm import Linear, Newton
 from oneFEM.analysis.constraints import Plain as PlainConstraints
 from oneFEM.analysis.numberer import Plain as PlainNumberer
-from oneFEM.analysis.system import FullGeneral, UmfPack
+from oneFEM.analysis.system import FullGeneral, UmfPackSOE
 from oneFEM.analysis.integrator import Newmark
 from oneFEM.analysis.test import NormUnbalance
 # import simulation manager
@@ -110,7 +110,7 @@ def run_dynamic_analysis(alg_name, sys_name):
     if sys_name == 'FullGeneral':
         syst = FullGeneral(1)
     else:
-        syst = UmfPack(1)
+        syst = UmfPackSOE(1)
 
     # Other analysis components
     const = PlainConstraints(1)
@@ -142,7 +142,7 @@ def run_dynamic_analysis(alg_name, sys_name):
 configs = [
     ('Linear', 'FullGeneral'),
     ('Newton', 'FullGeneral'),
-    ('Linear', 'UmfPack'),
+    ('Linear', 'UmfPackSOE'),
 ]
 
 results = {}
@@ -216,12 +216,12 @@ print(f"  Cross-check (Linear vs Newton): max diff = {cross_err:.6e}  {'PASS' if
 if not pass_cross:
     all_pass = False
 
-# Cross-check: FullGeneral and UmfPack should give identical results
+# Cross-check: FullGeneral and UmfPackSOE should give identical results
 d_fg, v_fg, a_fg = results[('Linear', 'FullGeneral')]
-d_um, v_um, a_um = results[('Linear', 'UmfPack')]
+d_um, v_um, a_um = results[('Linear', 'UmfPackSOE')]
 cross_err2 = np.max(np.abs(np.array(d_fg) - np.array(d_um)))
 pass_cross2 = cross_err2 < 1e-12
-print(f"  Cross-check (FullGeneral vs UmfPack): max diff = {cross_err2:.6e}  {'PASS' if pass_cross2 else 'FAIL'}")
+print(f"  Cross-check (FullGeneral vs UmfPackSOE): max diff = {cross_err2:.6e}  {'PASS' if pass_cross2 else 'FAIL'}")
 if not pass_cross2:
     all_pass = False
 

@@ -45,10 +45,10 @@ from oneFEM.model import Domain
 from oneFEM.model.node import Node22
 from oneFEM.model.element.continuum.quad4 import Quad4
 from oneFEM.model.material.nD.elastic_isotropic import ElasticIsotropic
-from oneFEM.model.element.kinematics.continuum.linear import LinearContinuumKinematics
-from oneFEM.model.element.kinematics.continuum.total_lagrangian import TotalLagrangianContinuumKinematics
-from oneFEM.model.element.kinematics.continuum.updated_lagrangian import UpdatedLagrangianContinuumKinematics
-from oneFEM.model.element.kinematics.continuum.corot import CorotContinuumKinematics
+from oneFEM.model.kinematics.continuum.cauchy.linear import LinearContinuumKinematics
+from oneFEM.model.kinematics.continuum.cauchy.total_lagrangian import TotalLagrangianContinuumKinematics
+from oneFEM.model.kinematics.continuum.cauchy.updated_lagrangian import UpdatedLagrangianContinuumKinematics
+from oneFEM.model.kinematics.continuum.cauchy.corot import CorotContinuumKinematics
 from oneFEM.model.pattern import Plain as PlainPattern
 from oneFEM.model.tseries import Linear as LinearTS
 from oneFEM.analysis import Analysis
@@ -254,18 +254,17 @@ def run_formulation(name, kin_class, nSteps=N_STEPS):
     converged = True
     t0 = _time.perf_counter()
 
-    model._domain()
-    analysis._organize(model)
+    analysis._analyze(model, nSteps=0, dt=0.0)
     integrator_obj = analysis._solution_integrator
 
     for step in range(nSteps):
         assembly_time = analysis._time + dt_val
-        model._assemble(time=assembly_time)
+        analysis._assembleF(model, time=assembly_time)
         integrator_obj.newStep(model, dt_val, analysis._time)
         try:
             analysis._solution_algorithm.solve(
                 model, analysis.uu, analysis.pp,
-                integrator_obj, analysis._system_of_equations, ctest)
+                integrator_obj, analysis._assembly_system, ctest)
         except Exception as e:
             print("    [{}] Step {} failed: {}".format(name, step + 1, e))
             converged = False

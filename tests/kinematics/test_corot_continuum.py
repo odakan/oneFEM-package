@@ -11,10 +11,10 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
 import numpy as np
-from oneFEM.model.element.kinematics.continuum.corot import CorotContinuumKinematics
-from oneFEM.model.element.kinematics.continuum.linear import LinearContinuumKinematics
-from oneFEM.model.element.continuum.isoparametric import (
-    quad4_shape_derivatives, quad4_gauss_points, compute_physical_derivatives)
+from oneFEM.model.kinematics.continuum.cauchy.corot import CorotContinuumKinematics
+from oneFEM.model.kinematics.continuum.cauchy.linear import LinearContinuumKinematics
+from oneFEM.model.element.continuum.quad4 import _quad4_shape_derivatives as quad4_shape_derivatives, _quad4_gauss_points as quad4_gauss_points
+from oneFEM.model.element.continuum.base import compute_physical_derivatives
 from oneFEM._systools.data import Vector, Matrix
 
 

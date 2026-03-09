@@ -17,14 +17,15 @@
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-import numpy as np
 from oneFEM.model import Domain
 from oneFEM.model.node import Node22
 from oneFEM.model.element.continuum.quad4 import Quad4
 from oneFEM.model.material.nD.elastic_isotropic import ElasticIsotropic
 from oneFEM.model.pattern import Plain as PlainPattern
 from oneFEM.model.tseries import Constant
-from oneFEM._systools.data import Vector
+from oneFEM.analysis.main import Analysis
+from oneFEM.analysis.algorithm.linear import Linear
+from oneFEM.analysis.integrator.static.load_control import LoadControl
 
 
 def cook_mesh(nx, ny):
@@ -105,75 +106,46 @@ def run_cooks_membrane(nx, ny, verbose=False):
         elements[eid] = elem
         model.add(elem)
 
-    # Dummy pattern (needed for Domain)
-    ts = Constant(1, factor=1.0)
-    pat = PlainPattern(1, ts)
-    model.add(pat)
-
     # Fix left edge
     for nid in left_nodes:
         nodes[nid].setFix([True, True])
 
-    # Initialize
-    model._domain()
-    model._assemble()
-
-    K = np.asarray(model.K)
-    n = model.nDOF
-
-    # Identify free and fixed DOFs
-    fixed_dofs = []
-    for nid in left_nodes:
-        fixed_dofs.extend(list(np.asarray(nodes[nid].getDOFs()).astype(int)))
-    fixed_set = set(fixed_dofs)
-    free_dofs = [i for i in range(n) if i not in fixed_set]
-
-    uu = np.array(free_dofs)
-    pp = np.array(fixed_dofs)
-
-    K_ff = K[np.ix_(uu, uu)]
-
-    # Consistent nodal forces: total shear F=1.0 distributed on right edge
-    # Using trapezoidal rule on the right edge nodes
-    F_global = np.zeros(n)
+    # Build consistent nodal forces for right edge
+    # Trapezoidal rule: uniform load on each segment, half to each end
     n_right = len(right_nodes)
-
-    # Compute edge segment lengths for consistent load distribution
+    node_forces = {}  # {nid: fy}
     for idx in range(n_right - 1):
         nid_bot = right_nodes[idx]
         nid_top = right_nodes[idx + 1]
         y_bot = node_coords[nid_bot][1]
         y_top = node_coords[nid_top][1]
         seg_len = y_top - y_bot
-
-        # Uniform distributed load -> each end gets half the segment force
-        dof_bot = int(np.asarray(nodes[nid_bot].getDOFs())[1])  # v DOF
-        dof_top = int(np.asarray(nodes[nid_top].getDOFs())[1])  # v DOF
-        F_global[dof_bot] += 0.5 * seg_len
-        F_global[dof_top] += 0.5 * seg_len
+        node_forces[nid_bot] = node_forces.get(nid_bot, 0.0) + 0.5 * seg_len
+        node_forces[nid_top] = node_forces.get(nid_top, 0.0) + 0.5 * seg_len
 
     # Normalize so total = 1.0
     edge_length = node_coords[right_nodes[-1]][1] - node_coords[right_nodes[0]][1]
-    F_global *= 1.0 / edge_length
+    load_list = []
+    for nid, fy in node_forces.items():
+        load_list.append([nid, 0.0, fy / edge_length])  # [nodeID, fx, fy]
 
-    # Solve: K_ff * u_f = F_f
-    F_f = F_global[uu]
-    u_f = np.linalg.solve(K_ff, F_f)
+    ts = Constant(1, factor=1.0)
+    pat = PlainPattern(1, ts, load=load_list)
+    model.add(pat)
 
-    # Extract tip displacement (v of tip node)
-    tip_dofs = np.asarray(nodes[tip_node_id].getDOFs()).astype(int)
-    tip_v_dof = tip_dofs[1]  # v DOF
+    # Solve via Analysis
+    analysis = Analysis(algorithm=Linear(), integrator=LoadControl(1))
+    analysis._analyze(model, nSteps=1, dt=1.0)
 
-    # Map back to global
-    u_global = np.zeros(n)
-    u_global[uu] = u_f
-
-    v_tip = u_global[tip_v_dof]
+    # Extract tip displacement
+    tip_nd = nodes[tip_node_id]
+    u_tip = tip_nd._getCommitDisp()
+    v_tip = float(u_tip[1])
 
     if verbose:
-        tip_u = u_global[tip_dofs[0]]
+        u_tip_x = float(u_tip[0])
         print(f"    {nx}x{ny} mesh ({len(elem_conn)} elements, {len(node_coords)} nodes):")
-        print(f"      u_tip = {tip_u:.6f}")
+        print(f"      u_tip = {u_tip_x:.6f}")
         print(f"      v_tip = {v_tip:.6f}")
 
     return v_tip

@@ -51,14 +51,23 @@ class Newmark(Integrator):
                     At[dof_idx] = a_c[k]
         return Ut, Vt, At
 
+    def _computeDamping(self, model, K_raw, M_raw):
+        """Compute Rayleigh damping C = alphaM*M + betaK*K."""
+        alphaM, betaK = model.getRayleighCoeffs()
+        if alphaM != 0.0 or betaK != 0.0:
+            return alphaM * M_raw + betaK * K_raw
+        else:
+            return np.zeros_like(M_raw)
+
     def initialize(self, model):
         """Compute initial acceleration from M * a_0 = F_0 - K * u_0 - C * v_0."""
         self._Ut, self._Vt, self._At = self._readCommittedState(model)
 
-        K_raw = np.asarray(model.K)
-        M_raw = np.asarray(model.M)
+        K_raw = self._system.getK().toarray()
+        M_sp = self._system.getM()
+        M_raw = M_sp.toarray() if M_sp is not None else np.zeros_like(K_raw)
         F_raw = np.asarray(model.F)
-        C_raw = np.asarray(model.C) if model.C is not None else np.zeros_like(K_raw)
+        C_raw = self._computeDamping(model, K_raw, M_raw)
 
         rhs_a0 = F_raw - K_raw.dot(self._Ut) - C_raw.dot(self._Vt)
 
@@ -87,9 +96,11 @@ class Newmark(Integrator):
         self._c2 = gamma / (beta * dt)
         self._c3 = 1.0 / (beta * dt * dt)
 
-        # Store M, C (constant within step)
-        self._M_data = np.asarray(model.M).copy()
-        self._C_data = np.asarray(model.C).copy() if model.C is not None else np.zeros_like(self._M_data)
+        # Store M, C from system
+        K_data = self._system.getK().toarray()
+        M_sp = self._system.getM()
+        self._M_data = M_sp.toarray() if M_sp is not None else np.zeros_like(K_data)
+        self._C_data = self._computeDamping(model, K_data, self._M_data)
 
         # Predictor: a_pred, v_pred (u stays at Ut)
         a_pred = (-(1.0 / (beta * dt)) * self._Vt
@@ -113,12 +124,8 @@ class Newmark(Integrator):
     def formTangent(self, model, tangent='current'):
         """K_eff = c1*K_T + c2*C + c3*M."""
         if tangent == 'current':
-            model._assemble(time=self._current_time + self._dt)
-            # Restore u/v/a after assembly (assembly zeros u)
-            model.u = Vector(list(self._U))
-            model.v = Vector(list(self._V))
-            model.a = Vector(list(self._A))
-        K_T = np.asarray(model.K)
+            self._assembleK(model)
+        K_T = self._system.getK().toarray()
         self._K_eff = self._c1 * K_T + self._c2 * self._C_data + self._c3 * self._M_data
 
     def formUnbalance(self, model):

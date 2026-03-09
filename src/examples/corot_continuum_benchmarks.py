@@ -19,9 +19,9 @@ from oneFEM.model import Domain
 from oneFEM.model.node import Node22
 from oneFEM.model.element.continuum.quad4 import Quad4
 from oneFEM.model.material.nD.elastic_isotropic import ElasticIsotropic
-from oneFEM.model.element.kinematics.continuum.corot import CorotContinuumKinematics
-from oneFEM.model.element.kinematics.continuum.total_lagrangian import TotalLagrangianContinuumKinematics
-from oneFEM.model.element.kinematics.continuum.updated_lagrangian import UpdatedLagrangianContinuumKinematics
+from oneFEM.model.kinematics.continuum.cauchy.corot import CorotContinuumKinematics
+from oneFEM.model.kinematics.continuum.cauchy.total_lagrangian import TotalLagrangianContinuumKinematics
+from oneFEM.model.kinematics.continuum.cauchy.updated_lagrangian import UpdatedLagrangianContinuumKinematics
 from oneFEM.model.pattern import Plain as PlainPattern
 from oneFEM.model.tseries import Linear as LinearTS
 from oneFEM.analysis import Analysis
@@ -210,8 +210,9 @@ def test_corot_patch_test():
         nd1.setFix([True, True])
         nd4.setFix([True, True])
 
-        model._domain()
-        model._assemble()
+        _analysis = Analysis(algorithm=Newton(1, tangent='current'),
+                             integrator=LoadControl(1))
+        _analysis._analyze(model, nSteps=0, dt=0.0)
 
         # Apply uniform eps_xx = 0.001 → u_x = 0.001 * x
         eps_xx = 0.001

@@ -3,6 +3,7 @@
 from .main import Domain
 from . import constraint
 from . import element
+from . import kinematics
 from . import material
 from . import node
 from . import pattern
@@ -15,6 +16,7 @@ __all__ = [
     "Domain",
     "constraint",
     "element",
+    "kinematics",
     "material",
     "node",
     "pattern",

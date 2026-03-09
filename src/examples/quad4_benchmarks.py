@@ -30,10 +30,10 @@ from oneFEM.model import Domain
 from oneFEM.model.node import Node22, Node23, Node36
 from oneFEM.model.element.continuum.quad4 import Quad4
 from oneFEM.model.element.beam import ElasticBeamColumn2d, ElasticBeamColumn3d
-from oneFEM.model.element.kinematics.continuum.linear import LinearContinuumKinematics
-from oneFEM.model.element.kinematics.continuum.total_lagrangian import TotalLagrangianContinuumKinematics
-from oneFEM.model.element.kinematics.continuum.updated_lagrangian import UpdatedLagrangianContinuumKinematics
-from oneFEM.model.element.kinematics.crdTransf import (
+from oneFEM.model.kinematics.continuum.cauchy.linear import LinearContinuumKinematics
+from oneFEM.model.kinematics.continuum.cauchy.total_lagrangian import TotalLagrangianContinuumKinematics
+from oneFEM.model.kinematics.continuum.cauchy.updated_lagrangian import UpdatedLagrangianContinuumKinematics
+from oneFEM.model.kinematics.beam import (
     CorotCrdTransf2d, CorotCrdTransf3d,
     PDeltaCrdTransf2d, PDeltaCrdTransf3d
 )
@@ -46,6 +46,7 @@ from oneFEM.analysis.algorithm.newton_raphson import Newton
 from oneFEM.analysis.constraints import Plain as PlainConstraints
 from oneFEM.analysis.numberer import Plain as PlainNumberer
 from oneFEM.analysis.system import FullGeneral
+from oneFEM.analysis.algorithm.linear import Linear as LinearAlg
 from oneFEM.analysis.integrator import LoadControl, DispControl
 from oneFEM.analysis.test import NormUnbalance
 from oneFEM import SimulationManager
@@ -286,10 +287,12 @@ def arch_mesh(nex, ney, H, L_half, R, thickness):
 # Direct Solver
 # ================================================================
 
-def direct_solve_2d(model, nodes, fixed_nids_dofs, F_ext_nids=None):
+def direct_solve_2d(model, nodes, fixed_nids_dofs, F_ext_nids=None, analysis=None):
     """Assemble K, partition, solve. Returns global displacement vector."""
-    model._assemble()
-    K = np.asarray(model.K)
+    if analysis is None:
+        raise RuntimeError("direct_solve_2d requires an analysis argument")
+    analysis._solution_integrator._assembleK(model)
+    K = analysis._assembly_system.getK().toarray()
     nDOF = model.nDOF
 
     fixed_dofs = []
@@ -414,12 +417,13 @@ def b1_build_model():
     model.add(pat)
     for nid in B1_BOUNDARY:
         nodes[nid].setFix([True, True])
-    model._domain()
-    return model, nodes, elements
+    _analysis = Analysis(algorithm=LinearAlg(), integrator=LoadControl(1))
+    _analysis._analyze(model, nSteps=0, dt=0.0)
+    return model, nodes, elements, _analysis
 
 
 def b1_run_gp_stress(lc):
-    model, nodes, elements = b1_build_model()
+    model, nodes, elements, _analysis = b1_build_model()
     for nid, (x, y) in B1_NODE_COORDS.items():
         u, v = b1_analytical_disp(lc, x, y)
         nodes[nid]._update(Vector([0.0, 0.0]), Vector([u, v]))
@@ -442,9 +446,9 @@ def b1_run_gp_stress(lc):
 
 
 def b1_run_interior_node(lc):
-    model, nodes, elements = b1_build_model()
-    model._assemble()
-    K = np.asarray(model.K)
+    model, nodes, elements, _analysis = b1_build_model()
+    _analysis._solution_integrator._assembleK(model)
+    K = _analysis._assembly_system.getK().toarray()
     n = model.nDOF
 
     int_nd = nodes[B1_INTERIOR]
@@ -557,46 +561,34 @@ def b2_run_cooks(nx, ny):
         elements[eid] = elem
         model.add(elem)
 
-    ts = Constant(1, factor=1.0)
-    pat = PlainPattern(1, ts)
-    model.add(pat)
     for nid in left_nodes:
         nodes[nid].setFix([True, True])
 
-    model._domain()
-    model._assemble()
-    K = np.asarray(model.K)
-    n = model.nDOF
-
-    fixed_dofs = []
-    for nid in left_nodes:
-        fixed_dofs.extend(list(np.asarray(nodes[nid].getDOFs()).astype(int)))
-    fixed_set = set(fixed_dofs)
-    free_dofs = [i for i in range(n) if i not in fixed_set]
-
-    uu = np.array(free_dofs)
-    pp = np.array(fixed_dofs)
-    K_ff = K[np.ix_(uu, uu)]
-
-    F_global = np.zeros(n)
+    # Build consistent nodal forces for right edge (trapezoidal rule)
     n_right = len(right_nodes)
+    node_forces = {}  # {nid: fy}
     for idx_r in range(n_right - 1):
         nid_bot = right_nodes[idx_r]
         nid_top = right_nodes[idx_r + 1]
         y_bot = node_coords[nid_bot][1]
         y_top = node_coords[nid_top][1]
         seg_len = y_top - y_bot
-        dof_bot = int(np.asarray(nodes[nid_bot].getDOFs())[1])
-        dof_top = int(np.asarray(nodes[nid_top].getDOFs())[1])
-        F_global[dof_bot] += 0.5 * seg_len
-        F_global[dof_top] += 0.5 * seg_len
+        node_forces[nid_bot] = node_forces.get(nid_bot, 0.0) + 0.5 * seg_len
+        node_forces[nid_top] = node_forces.get(nid_top, 0.0) + 0.5 * seg_len
 
     edge_length = node_coords[right_nodes[-1]][1] - node_coords[right_nodes[0]][1]
-    F_global *= 1.0 / edge_length
+    load_list = [[nid, 0.0, fy / edge_length] for nid, fy in node_forces.items()]
 
-    u_f = np.linalg.solve(K_ff, F_global[uu])
-    u_global = np.zeros(n)
-    u_global[uu] = u_f
+    ts = Constant(1, factor=1.0)
+    pat = PlainPattern(1, ts, load=load_list)
+    model.add(pat)
+
+    analysis = Analysis(algorithm=LinearAlg(), integrator=LoadControl(1))
+    analysis._analyze(model, nSteps=1, dt=1.0)
+
+    # Extract global displacement vector
+    n = model.nDOF
+    u_global = model.getCommittedDisp()
 
     tip_dofs = np.asarray(nodes[tip_nid].getDOFs()).astype(int)
     v_tip = u_global[tip_dofs[1]]
@@ -724,7 +716,8 @@ def b3_build_single_quad(kinematics):
     ts = Constant(1, factor=1.0)
     pat = PlainPattern(1, ts)
     model.add(pat)
-    model._domain()
+    _analysis = Analysis(algorithm=LinearAlg(), integrator=LoadControl(1))
+    _analysis._analyze(model, nSteps=0, dt=0.0)
     return model, [nd1, nd2, nd3, nd4], elem
 
 
@@ -1061,8 +1054,7 @@ def b5_run_snap_through(kin_class):
     analysis = Analysis(1, algorithm=alg, constraints=const,
                         integrator=integ, system=syst, test=ctest)
 
-    model._domain()
-    analysis._organize(model)
+    analysis._analyze(model, nSteps=0, dt=0.0)
 
     apex_dofs = nodes[apex_nid].getDOFs()
     if hasattr(apex_dofs, 'data'):
@@ -1081,9 +1073,9 @@ def b5_run_snap_through(kin_class):
     for step in range(nSteps_max):
         try:
             assembly_time = analysis._time + 1.0
-            model._assemble(time=assembly_time)
+            analysis._assembleF(model, time=assembly_time)
             integ.newStep(model, 1.0, analysis._time)
-            alg.solve(model, analysis.uu, analysis.pp, integ, syst, ctest)
+            alg.solve(model, analysis.uu, analysis.pp, integ, analysis._assembly_system, ctest)
             integ.commit(model)
             analysis._time += 1.0
 
@@ -1405,16 +1397,15 @@ def b7_run_pcr_2d(TransfClass, nElem, incr=-0.005, nSteps_max=200):
     P_history = []
     disp_history = []
 
-    model._domain()
-    analysis._organize(model)
+    analysis._analyze(model, nSteps=0, dt=0.0)
     uu_idx = np.array(analysis.uu, dtype=int)
 
     for step in range(nSteps_max):
         try:
             assembly_time = analysis._time + 1.0
-            model._assemble(time=assembly_time)
+            analysis._assembleF(model, time=assembly_time)
             integ.newStep(model, 1.0, analysis._time)
-            alg.solve(model, analysis.uu, analysis.pp, integ, syst, ctest)
+            alg.solve(model, analysis.uu, analysis.pp, integ, analysis._assembly_system, ctest)
             integ.commit(model)
             analysis._time += 1.0
 
@@ -1432,9 +1423,8 @@ def b7_run_pcr_2d(TransfClass, nElem, incr=-0.005, nSteps_max=200):
             disp_history.append(float(u_top[1]))
             P_history.append(P_current)
 
-            model._assemble(time=analysis._time)
-            model.u = integ._U
-            K = np.asarray(model.K)
+            integ._assembleK(model)
+            K = analysis._assembly_system.getK().toarray()
             K_uu = K[np.ix_(uu_idx, uu_idx)]
             eigs = np.linalg.eigvalsh(K_uu)
             min_eig = np.min(eigs)

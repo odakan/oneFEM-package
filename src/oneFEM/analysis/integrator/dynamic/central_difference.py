@@ -51,6 +51,14 @@ class CDiff(Integrator):
                     At[dof_idx] = a_c[k]
         return Ut, Vt, At
 
+    def _computeDamping(self, model, K_raw, M_raw):
+        """Compute Rayleigh damping C = alphaM*M + betaK*K."""
+        alphaM, betaK = model.getRayleighCoeffs()
+        if alphaM != 0.0 or betaK != 0.0:
+            return alphaM * M_raw + betaK * K_raw
+        else:
+            return np.zeros_like(M_raw)
+
     def initialize(self, model):
         """Compute initial acceleration and set Utm1.
 
@@ -59,10 +67,11 @@ class CDiff(Integrator):
         """
         self._Ut, self._Vt, self._At = self._readCommittedState(model)
 
-        K_raw = np.asarray(model.K)
-        M_raw = np.asarray(model.M)
+        K_raw = self._system.getK().toarray()
+        M_sp = self._system.getM()
+        M_raw = M_sp.toarray() if M_sp is not None else np.zeros_like(K_raw)
         F_raw = np.asarray(model.F)
-        C_raw = np.asarray(model.C) if model.C is not None else np.zeros_like(K_raw)
+        C_raw = self._computeDamping(model, K_raw, M_raw)
 
         rhs_a0 = F_raw - K_raw.dot(self._Ut) - C_raw.dot(self._Vt)
 
@@ -89,9 +98,11 @@ class CDiff(Integrator):
         self._c2 = 0.5 / dt
         self._c3 = 1.0 / (dt * dt)
 
-        # Store M, C
-        self._M_data = np.asarray(model.M).copy()
-        self._C_data = np.asarray(model.C).copy() if model.C is not None else np.zeros_like(self._M_data)
+        # Store M, C from system
+        K_data = self._system.getK().toarray()
+        M_sp = self._system.getM()
+        self._M_data = M_sp.toarray() if M_sp is not None else np.zeros_like(K_data)
+        self._C_data = self._computeDamping(model, K_data, self._M_data)
 
         # Read committed state
         self._Ut, self._Vt, self._At = self._readCommittedState(model)
